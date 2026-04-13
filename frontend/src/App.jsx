@@ -1,6 +1,6 @@
 import { Activity, AlertCircle, ArrowDownRight, ArrowUpRight, BarChart3, Calendar, DollarSign, LayoutDashboard, ShoppingBag, TrendingUp } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell as ReCell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import './App.css';
 
 function App() {
@@ -9,7 +9,29 @@ function App() {
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('overview');
   const [comparisonModal, setComparisonModal] = useState({ open: false, data: null, loading: false });
+  const [modalFilter, setModalFilter] = useState('all'); // 'all', 'before', 'during'
   
+  const HeaderWithInfo = ({ label, info }) => (
+    <th className="has-tooltip text-left px-4 py-3">
+      <div className="flex items-center gap-1">
+        {label} <AlertCircle size={14} className="info-icon" />
+      </div>
+      <div className="tooltip-text">
+        {label === "Recommendation" ? (
+          <div className="recommendation-legend">
+            <p className="font-bold mb-2">AI Performance Logic:</p>
+            <div className="space-y-1">
+              <p>🔴 <strong>STOP:</strong> Losing money (Loss {'>'} Spend)</p>
+              <p>⚠️ <strong>OPTIMIZE:</strong> Marginal returns. Needs adjustments.</p>
+              <p>✅ <strong>SCALE:</strong> Profitable. Ready for 20% increases.</p>
+              <p>🚀 <strong>AGGRESSIVE:</strong> Exceptional ROI. Scale rapidly.</p>
+            </div>
+          </div>
+        ) : info}
+      </div>
+    </th>
+  );
+
   // Date Filters
   const [startDate, setStartDate] = useState(() => {
     const d = new Date();
@@ -36,15 +58,19 @@ function App() {
 
   const fetchComparison = async (campaignId, productId) => {
     setComparisonModal({ open: true, data: null, loading: true });
+    setModalFilter('all'); // Reset filter when opening new comparison
     try {
       const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
       const prodId = productId || 'default';
       const response = await fetch(`${baseUrl}/api/v1/analytics/comparison?campaign_id=${campaignId}&product_id=${prodId}`);
-      if (!response.ok) throw new Error('Failed to fetch comparison');
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Failed to fetch comparison: ${errText}`);
+      }
       const result = await response.json();
       setComparisonModal({ open: true, data: result, loading: false });
     } catch (err) {
-      console.error(err);
+      console.error('Comparison Fetch Error:', err);
       setComparisonModal({ open: true, data: null, loading: false, error: err.message });
     }
   };
@@ -79,14 +105,11 @@ function App() {
     new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(value);
 
   const getBadgeClass = (recLevel) => {
-    switch (recLevel?.toLowerCase()) {
-      case 'scale': return 'rec-scale';
-      case 'good': return 'rec-good';
-      case 'marginal': return 'rec-marginal';
-      case 'stop': return 'rec-stop';
-      case '⚪ pending data': return 'rec-pending';
-      default: return 'rec-pending';
-    }
+    const level = recLevel?.toLowerCase() || '';
+    if (level.includes('scale')) return 'badge-success';
+    if (level.includes('optimize')) return 'badge-warning';
+    if (level.includes('stop')) return 'badge-danger';
+    return 'badge-pending';
   };
 
   // Chart Colors (PowerBI Palette)
@@ -219,19 +242,30 @@ function App() {
 
         {/* Tab-specific Tables */}
         <div className="table-container glass-panel">
-          <h3 className="chart-title">
-            {activeTab === 'overview' ? 'Top Campaign Performance' : 
-             activeTab === 'campaigns' ? 'Campaign Detailed Analysis' : 
-             'Product Sales Performance'}
-          </h3>
+          <div className="table-header-flex">
+            <h3 className="chart-title">
+              {activeTab === 'overview' ? 'Top Campaign Performance' : 
+               activeTab === 'campaigns' ? 'Campaign Detailed Analysis' : 
+               'Product Sales Performance'}
+            </h3>
+            
+            {activeTab !== 'sales' && (
+              <div className="legend-pills">
+                <span className="legend-item"><span className="status-dot"></span> Active</span>
+                <span className="legend-item"><span className="pill badge-success">SCALE</span></span>
+                <span className="legend-item"><span className="pill badge-warning">OPTIMIZE</span></span>
+                <span className="legend-item"><span className="pill badge-danger">STOP</span></span>
+              </div>
+            )}
+          </div>
           
           <table className="dashboard-table">
             <thead>
               {activeTab !== 'sales' ? (
                 <tr>
                   <th>Campaign Name</th>
-                  <th>Status</th>
-                  <th>Recommendation</th>
+                  <HeaderWithInfo label="Status" info="Current delivery state from Meta Ads Manager." />
+                  <HeaderWithInfo label="Recommendation" info="AI advice based on your ROAS vs Product Costs." />
                   <th>Spend</th>
                   <th>Revenue</th>
                   <th>True ROAS</th>
@@ -251,7 +285,9 @@ function App() {
                 campaigns.map((camp) => (
                   <tr key={camp.campaign_id}>
                     <td className="font-bold">{camp.campaign_name}</td>
-                    <td><span className="status-dot"></span> {camp.status}</td>
+                    <td><span className={`status-pill ${camp.status?.toLowerCase()}`}>
+                      <span className="status-dot"></span> {camp.status}
+                    </span></td>
                     <td><span className={`pill ${getBadgeClass(camp.recommendation_level)}`}>{camp.recommendation_level}</span></td>
                     <td>{formatCurrency(camp.ad_spend)}</td>
                     <td>{formatCurrency(camp.revenue)}</td>
@@ -296,44 +332,115 @@ function App() {
                     <p><strong>Window:</strong> {comparisonModal.data.window_days} Days</p>
                   </div>
 
-                  <div className="comparison-metrics-row">
-                    <div className="comp-metric">
-                      <span className="comp-label">Avg Daily Sales (Before)</span>
-                      <span className="comp-val">{comparisonModal.data.stats.avg_daily_before.toFixed(1)}</span>
-                    </div>
-                    <div className="comp-metric highlight">
-                      <span className="comp-label">Avg Daily Sales (During)</span>
-                      <span className="comp-val">{comparisonModal.data.stats.avg_daily_during.toFixed(1)}</span>
-                    </div>
-                    <div className={`comp-metric ${comparisonModal.data.stats.sales_lift_pct >= 0 ? 'text-success' : 'text-danger'}`}>
-                      <span className="comp-label">Sales Lift</span>
-                      <span className="comp-val">{comparisonModal.data.stats.sales_lift_pct > 0 ? '+' : ''}{comparisonModal.data.stats.sales_lift_pct.toFixed(1)}%</span>
-                    </div>
+                  <div className="modal-tabs" style={{ display: 'flex', gap: '10px', marginBottom: '20px', borderBottom: '1px solid #2a2e3f', paddingBottom: '10px' }}>
+                    <button 
+                      className={`tab-btn ${modalFilter === 'all' ? 'active' : ''}`}
+                      onClick={() => setModalFilter('all')}
+                      style={{ 
+                        background: modalFilter === 'all' ? 'rgba(139, 92, 246, 0.1)' : 'transparent', 
+                        color: modalFilter === 'all' ? '#8b5cf6' : '#9ca3af', 
+                        border: modalFilter === 'all' ? '1px solid #8b5cf6' : '1px solid #3b3f4e', 
+                        padding: '8px 20px', 
+                        borderRadius: '6px',
+                        cursor: 'pointer', 
+                        fontWeight: '600',
+                        transition: 'all 0.2s ease'
+                      }}
+                    >
+                      Compare All
+                    </button>
+                    <button 
+                      className={`tab-btn ${modalFilter === 'before' ? 'active' : ''}`}
+                      onClick={() => setModalFilter('before')}
+                      style={{ 
+                        background: modalFilter === 'before' ? 'rgba(107, 114, 128, 0.1)' : 'transparent', 
+                        color: modalFilter === 'before' ? '#fff' : '#9ca3af', 
+                        border: modalFilter === 'before' ? '1px solid #6b7280' : '1px solid #3b3f4e', 
+                        padding: '8px 20px', 
+                        borderRadius: '6px',
+                        cursor: 'pointer', 
+                        fontWeight: '600',
+                        transition: 'all 0.2s ease'
+                      }}
+                    >
+                      Before Ad
+                    </button>
+                    <button 
+                      className={`tab-btn ${modalFilter === 'during' ? 'active' : ''}`}
+                      onClick={() => setModalFilter('during')}
+                      style={{ 
+                        background: modalFilter === 'during' ? 'rgba(139, 92, 246, 0.1)' : 'transparent', 
+                        color: modalFilter === 'during' ? '#a78bfa' : '#9ca3af', 
+                        border: modalFilter === 'during' ? '1px solid #8b5cf6' : '1px solid #3b3f4e', 
+                        padding: '8px 20px', 
+                        borderRadius: '6px',
+                        cursor: 'pointer', 
+                        fontWeight: '600',
+                        transition: 'all 0.2s ease'
+                      }}
+                    >
+                      After Ad (During)
+                    </button>
                   </div>
 
-                  <h3 className="chart-title small">Historical Sales Chart</h3>
-                  <div style={{ width: '100%', height: 200 }}>
-                    <ResponsiveContainer>
+                  <div className="comparison-metrics-row">
+                    {(modalFilter === 'all' || modalFilter === 'before') && (
+                      <div className="comp-metric">
+                        <span className="comp-label">Avg Daily Sales (Before)</span>
+                        <span className="comp-val">{comparisonModal.data.stats.avg_daily_before.toFixed(1)}</span>
+                      </div>
+                    )}
+                    {(modalFilter === 'all' || modalFilter === 'during') && (
+                      <div className="comp-metric highlight">
+                        <span className="comp-label">Avg Daily Sales (During)</span>
+                        <span className="comp-val">{comparisonModal.data.stats.avg_daily_during.toFixed(1)}</span>
+                      </div>
+                    )}
+                    {modalFilter === 'all' && (
+                      <div className={`comp-metric ${comparisonModal.data.stats.sales_lift_pct >= 0 ? 'text-success' : 'text-danger'}`}>
+                        <span className="comp-label">Sales Lift</span>
+                        <span className="comp-val">{comparisonModal.data.stats.sales_lift_pct > 0 ? '+' : ''}{comparisonModal.data.stats.sales_lift_pct.toFixed(1)}%</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <h3 className="chart-title small">
+                    {modalFilter === 'all' ? 'Full Historical Comparison' : 
+                     modalFilter === 'before' ? 'Performance Before Ad' : 
+                     'Performance During Ad'}
+                  </h3>
+                  <div style={{ width: '100%', minWidth: '400px', height: 250 }}>
+                    <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={[
-                        ...comparisonModal.data.raw_data.before.map(d => ({ ...d, period: 'Before' })),
-                        ...comparisonModal.data.raw_data.during.map(d => ({ ...d, period: 'During' }))
+                        ...(modalFilter === 'all' || modalFilter === 'before' ? (comparisonModal.data.raw_data.before || []).map(d => ({ ...d, period: 'Before' })) : []),
+                        ...(modalFilter === 'all' || modalFilter === 'during' ? (comparisonModal.data.raw_data.during || []).map(d => ({ ...d, period: 'During' })) : [])
                       ]}>
-                        <XAxis dataKey="date" hide />
-                        <YAxis hide />
-                        <Tooltip contentStyle={{ backgroundColor: '#1a1c24', border: '1px solid #3b3f4e' }} />
+                        <CartesianGrid strokeDasharray="3 3" stroke="#2a2e3f" vertical={false} />
+                        <XAxis dataKey="date" stroke="#6b7280" fontSize={10} tickLine={false} />
+                        <YAxis stroke="#6b7280" fontSize={10} tickLine={false} />
+                        <Tooltip 
+                          contentStyle={{ backgroundColor: '#1a1c24', border: '1px solid #3b3f4e' }}
+                          itemStyle={{ color: '#fff' }}
+                        />
                         <Bar dataKey="units_sold">
                           {[
-                            ...(comparisonModal.data.raw_data.before || []).map(() => '#3b3f4e'),
-                            ...(comparisonModal.data.raw_data.during || []).map(() => '#8b5cf6')
+                            ...(modalFilter === 'all' || modalFilter === 'before' ? (comparisonModal.data.raw_data.before || []).map(() => '#3b3f4e') : []),
+                            ...(modalFilter === 'all' || modalFilter === 'during' ? (comparisonModal.data.raw_data.during || []).map(() => '#8b5cf6') : [])
                           ].map((entry, index) => (
                             <ReCell key={`cell-${index}`} fill={entry} />
                           ))}
                         </Bar>
                       </BarChart>
                     </ResponsiveContainer>
-                    <div className="chart-legend">
-                      <span className="legend-item"><span className="dot gray"></span> Before Ad</span>
-                      <span className="legend-item"><span className="dot purple"></span> During Ad</span>
+                    <div className="chart-legend" style={{ display: 'flex', justifyContent: 'center', gap: '20px', marginTop: '10px' }}>
+                      <span className="legend-item" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        <div style={{ width: '12px', height: '12px', backgroundColor: '#3b3f4e', borderRadius: '2px' }}></div> 
+                        <span style={{ fontSize: '12px', color: '#9ca3af' }}>Before Ad</span>
+                      </span>
+                      <span className="legend-item" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        <div style={{ width: '12px', height: '12px', backgroundColor: '#8b5cf6', borderRadius: '2px' }}></div> 
+                        <span style={{ fontSize: '12px', color: '#9ca3af' }}>During Ad</span>
+                      </span>
                     </div>
                   </div>
                 </div>

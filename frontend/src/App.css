@@ -184,6 +184,33 @@ body {
   border-collapse: collapse;
 }
 
+.table-header-flex {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  padding-right: 1rem;
+}
+
+.legend-pills {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.badge-success { background: rgba(16, 185, 129, 0.1); color: var(--success); border: 1px solid rgba(16, 185, 129, 0.2); }
+.badge-warning { background: rgba(245, 158, 11, 0.1); color: var(--warning); border: 1px solid rgba(245, 158, 11, 0.2); }
+.badge-danger { background: rgba(239, 68, 68, 0.1); color: var(--danger); border: 1px solid rgba(239, 68, 68, 0.2); }
+.badge-pending { background: rgba(156, 163, 175, 0.1); color: var(--text-muted); border: 1px solid rgba(156, 163, 175, 0.2); }
+
 .dashboard-table th {
   text-align: left;
   font-size: 0.75rem;
@@ -206,14 +233,22 @@ body {
   font-weight: 700;
 }
 
+.status-pill {
+  display: flex;
+  align-items: center;
+  width: fit-content;
+}
+
+.status-pill.active .status-dot { background: var(--success); box-shadow: 0 0 8px var(--success); }
+.status-pill.paused .status-dot { background: var(--text-muted); box-shadow: none; }
+.status-pill.archived .status-dot { background: var(--danger); box-shadow: none; }
+
 .status-dot {
-  width: 10px;
-  height: 10px;
-  background: var(--success);
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   display: inline-block;
   margin-right: 0.5rem;
-  box-shadow: 0 0 8px var(--success);
 }
 
 .table-btn {
@@ -235,6 +270,62 @@ body {
 .icon-warning { color: var(--warning); }
 .icon-success { color: var(--success); }
 .icon-purple { color: var(--accent-purple); }
+
+/* Tooltip styles for better understanding */
+.has-tooltip {
+  position: relative;
+  cursor: help;
+}
+
+.info-icon {
+  display: inline;
+  vertical-align: middle;
+  opacity: 0.6;
+  margin-left: 4px;
+}
+
+.tooltip-text {
+  visibility: hidden;
+  width: 260px;
+  background-color: #1a1e29;
+  color: #fff;
+  text-align: left;
+  border: 1px solid var(--accent-purple);
+  padding: 12px;
+  border-radius: 10px;
+  position: absolute;
+  z-index: 100;
+  bottom: 125%;
+  left: 0;
+  opacity: 0;
+  transition: all 0.3s ease;
+  font-size: 0.75rem;
+  font-weight: normal;
+  line-height: 1.5;
+  box-shadow: 0 15px 30px -10px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+  backdrop-filter: blur(10px);
+}
+
+.recommendation-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.recommendation-legend strong {
+  color: white;
+}
+
+.font-bold { font-weight: 700; }
+.mb-2 { margin-bottom: 0.5rem; }
+.space-y-1 > p { margin: 2px 0; }
+
+.has-tooltip:hover .tooltip-text {
+  visibility: visible;
+  opacity: 1;
+  transform: translateY(-5px);
+}
 
 .date-filters {
   display: flex;

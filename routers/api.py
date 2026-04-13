@@ -247,7 +247,7 @@ def get_campaign_comparison(
 ):
     """
     Comparison analysis:
-    Sales before add campaign and sales after add campaign of specific products
+    Sales before ad campaign and sales during ad campaign of specific products
     """
     try:
         # 1. Start by getting campaign details to find the start date
@@ -257,7 +257,12 @@ def get_campaign_comparison(
             raise HTTPException(status_code=404, detail="Campaign not found")
 
         # Use the actual campaign start date
-        camp_start = date.fromisoformat(target_camp["start_time"])
+        # Fallback to a month ago if start_time is missing
+        try:
+            camp_start = date.fromisoformat(target_camp["start_time"])
+        except (ValueError, KeyError):
+            camp_start = date.today() - timedelta(days=15)
+            
         today = date.today()
         
         # Define ranges
@@ -274,15 +279,33 @@ def get_campaign_comparison(
         
         # If product_id is provided, prioritize product-specific data for incrementality
         if product_id and product_id != 'default':
+            # Check if product exists in Shopify
             all_sales_before = shopify_service.get_daily_sales_timeseries(product_id, pre_start, pre_end)
             all_sales_during = shopify_service.get_daily_sales_timeseries(product_id, camp_start, during_end)
         
+        # Ensure we have data for all days in the range (fill zeros)
+        def fill_days(data_list, start, end):
+            data_map = {d["date"]: d for d in data_list}
+            result = []
+            curr = start
+            while curr <= end:
+                date_str = curr.isoformat()
+                if date_str in data_map:
+                    result.append(data_map[date_str])
+                else:
+                    result.append({"date": date_str, "units_sold": 0, "revenue": 0.0})
+                curr += timedelta(days=1)
+            return result
+
+        full_before = fill_days(all_sales_before, pre_start, pre_end)
+        full_during = fill_days(all_sales_during, camp_start, during_end)
+
         def calculate_avg(stats_list):
             if not stats_list: return 0.0
             return sum(s["units_sold"] for s in stats_list) / len(stats_list)
 
-        avg_before = calculate_avg(all_sales_before)
-        avg_during = calculate_avg(all_sales_during)
+        avg_before = calculate_avg(full_before)
+        avg_during = calculate_avg(full_during)
         
         lift = analytics_service.calculate_sales_lift(avg_before, avg_during)
         
@@ -297,11 +320,13 @@ def get_campaign_comparison(
                 "sales_lift_pct": lift
             },
             "raw_data": {
-                "before": all_sales_before,
-                "during": all_sales_during
+                "before": full_before,
+                "during": full_during
             }
         }
     except Exception as e:
+        import traceback
+        print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
 
