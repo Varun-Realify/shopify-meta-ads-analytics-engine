@@ -99,7 +99,7 @@ function App() {
 
   if (!data) return null;
 
-  const { overview, campaigns, shopify_daily = [] } = data;
+  const { overview, campaigns, shopify_daily = [], top_orders = [] } = data;
 
   const formatCurrency = (value) => 
     new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(value);
@@ -196,6 +196,24 @@ function App() {
                 <div className="kpi-value">{overview.blended_roas.toFixed(2)}x</div>
                 <div className="kpi-footer text-danger"><ArrowDownRight size={14} /> -0.2 drop</div>
               </div>
+
+              <div className="kpi-card glass-panel">
+                <div className="kpi-header">
+                  <span className="kpi-label">TOTAL COGS</span>
+                  <ShoppingBag size={18} className="icon-warning" />
+                </div>
+                <div className="kpi-value">{formatCurrency(overview.total_cogs || 0)}</div>
+                <div className="kpi-footer text-muted">Cost of Goods Sold</div>
+              </div>
+
+              <div className="kpi-card glass-panel">
+                <div className="kpi-header">
+                  <span className="kpi-label">CAC</span>
+                  <Activity size={18} className="icon-blue" />
+                </div>
+                <div className="kpi-value">{formatCurrency(overview.cac || 0)}</div>
+                <div className="kpi-footer text-muted">Customer Acquisition Cost</div>
+              </div>
             </div>
 
             {/* Charts Section */}
@@ -241,78 +259,145 @@ function App() {
         )}
 
         {/* Tab-specific Tables */}
-        <div className="table-container glass-panel">
-          <div className="table-header-flex">
-            <h3 className="chart-title">
-              {activeTab === 'overview' ? 'Top Campaign Performance' : 
-               activeTab === 'campaigns' ? 'Campaign Detailed Analysis' : 
-               'Product Sales Performance'}
-            </h3>
-            
-            {activeTab !== 'sales' && (
-              <div className="legend-pills">
-                <span className="legend-item"><span className="status-dot"></span> Active</span>
-                <span className="legend-item"><span className="pill badge-success">SCALE</span></span>
-                <span className="legend-item"><span className="pill badge-warning">OPTIMIZE</span></span>
-                <span className="legend-item"><span className="pill badge-danger">STOP</span></span>
+        {activeTab === 'overview' ? (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+            <div className="table-container glass-panel">
+              <div className="table-header-flex">
+                <h3 className="chart-title">Top Campaign Performance</h3>
               </div>
-            )}
+              <table className="dashboard-table">
+                <thead>
+                  <tr>
+                    <th>Campaign Name</th>
+                    <th>Spend</th>
+                    <th>Revenue</th>
+                    <th>True ROAS</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {campaigns.slice(0, 5).map((camp) => (
+                    <tr key={camp.campaign_id}>
+                      <td className="font-bold">{camp.campaign_name}</td>
+                      <td>{formatCurrency(camp.ad_spend)}</td>
+                      <td>{formatCurrency(camp.revenue)}</td>
+                      <td className="text-accent">{camp.true_roas.toFixed(2)}x</td>
+                      <td>
+                        <button className="table-btn" 
+                          onClick={() => fetchComparison(camp.campaign_id, camp.product_id)}>
+                          Compare
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            
+            <div className="table-container glass-panel">
+              <div className="table-header-flex">
+                <h3 className="chart-title">Top Orders</h3>
+              </div>
+              <table className="dashboard-table">
+                <thead>
+                  <tr>
+                    <th>Product</th>
+                    <th>Qty Sold</th>
+                    <th>Revenue</th>
+                    <th>Profit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {top_orders && top_orders.length > 0 ? top_orders.map((p, i) => (
+                    <tr key={i}>
+                      <td className="font-bold">{p.product_title}</td>
+                      <td>{p.total_quantity}</td>
+                      <td>{formatCurrency(p.total_revenue || 0)}</td>
+                      <td className={(p.total_profit || 0) >= 0 ? 'text-success' : 'text-danger'}>{formatCurrency(p.total_profit || 0)}</td>
+                    </tr>
+                  )) : (
+                    <tr>
+                      <td colSpan="4" style={{ textAlign: 'center', padding: '1rem', color: 'var(--text-muted)' }}>
+                        No orders currently loading for this period.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
-          
-          <table className="dashboard-table">
-            <thead>
-              {activeTab !== 'sales' ? (
-                <tr>
-                  <th>Campaign Name</th>
-                  <HeaderWithInfo label="Status" info="Current delivery state from Meta Ads Manager." />
-                  <HeaderWithInfo label="Recommendation" info="AI advice based on your ROAS vs Product Costs." />
-                  <th>Spend</th>
-                  <th>Revenue</th>
-                  <th>True ROAS</th>
-                  <th>Actions</th>
-                </tr>
-              ) : (
-                <tr>
-                  <th>Product</th>
-                  <th>Units Sold</th>
-                  <th>Total Revenue</th>
-                  <th>Order Count</th>
-                </tr>
+        ) : (
+          <div className="table-container glass-panel">
+            <div className="table-header-flex">
+              <h3 className="chart-title">
+                {activeTab === 'campaigns' ? 'Campaign Detailed Analysis' : 'Product Sales Performance'}
+              </h3>
+              
+              {activeTab !== 'sales' && (
+                <div className="legend-pills">
+                  <span className="legend-item"><span className="status-dot"></span> Active</span>
+                  <span className="legend-item"><span className="pill badge-success">SCALE</span></span>
+                  <span className="legend-item"><span className="pill badge-warning">OPTIMIZE</span></span>
+                  <span className="legend-item"><span className="pill badge-danger">STOP</span></span>
+                </div>
               )}
-            </thead>
-            <tbody>
-              {activeTab !== 'sales' ? 
-                campaigns.map((camp) => (
-                  <tr key={camp.campaign_id}>
-                    <td className="font-bold">{camp.campaign_name}</td>
-                    <td><span className={`status-pill ${camp.status?.toLowerCase()}`}>
-                      <span className="status-dot"></span> {camp.status}
-                    </span></td>
-                    <td><span className={`pill ${getBadgeClass(camp.recommendation_level)}`}>{camp.recommendation_level}</span></td>
-                    <td>{formatCurrency(camp.ad_spend)}</td>
-                    <td>{formatCurrency(camp.revenue)}</td>
-                    <td className="text-accent">{camp.true_roas.toFixed(2)}x</td>
-                    <td>
-                      <button className="table-btn" 
-                        onClick={() => fetchComparison(camp.campaign_id, camp.product_id)}>
-                        Compare Impact
-                      </button>
-                    </td>
+            </div>
+            
+            <table className="dashboard-table">
+              <thead>
+                {activeTab !== 'sales' ? (
+                  <tr>
+                    <th>Campaign Name</th>
+                    <HeaderWithInfo label="Status" info="Current delivery state from Meta Ads Manager." />
+                    <HeaderWithInfo label="Recommendation" info="AI advice based on your ROAS vs Product Costs." />
+                    <th>Spend</th>
+                    <th>Revenue</th>
+                    <th>True ROAS</th>
+                    <th>Actions</th>
                   </tr>
-                )) : 
-                // Product Sales Rows (Fallback if products is not array, check source)
-                shopify_daily.map((p, i) => (
-                  <tr key={i}>
-                    <td className="font-bold">{p.date}</td>
-                    <td>{p.units_sold}</td>
-                    <td>{formatCurrency(p.revenue)}</td>
-                    <td>Orders Managed</td>
+                ) : (
+                  <tr>
+                    <th>Product</th>
+                    <th>Units Sold</th>
+                    <th>Total Revenue</th>
+                    <th>Order Count</th>
                   </tr>
-                ))
-              }
-            </tbody>
-          </table>
-        </div>
+                )}
+              </thead>
+              <tbody>
+                {activeTab !== 'sales' ? 
+                  campaigns.map((camp) => (
+                    <tr key={camp.campaign_id}>
+                      <td className="font-bold">{camp.campaign_name}</td>
+                      <td><span className={`status-pill ${camp.status?.toLowerCase()}`}>
+                        <span className="status-dot"></span> {camp.status}
+                      </span></td>
+                      <td><span className={`pill ${getBadgeClass(camp.recommendation_level)}`}>{camp.recommendation_level}</span></td>
+                      <td>{formatCurrency(camp.ad_spend)}</td>
+                      <td>{formatCurrency(camp.revenue)}</td>
+                      <td className="text-accent">{camp.true_roas.toFixed(2)}x</td>
+                      <td>
+                        <button className="table-btn" 
+                          onClick={() => fetchComparison(camp.campaign_id, camp.product_id)}>
+                          Compare Impact
+                        </button>
+                      </td>
+                    </tr>
+                  )) : 
+                  // Product Sales Rows
+                  shopify_daily.map((p, i) => (
+                    <tr key={i}>
+                      <td className="font-bold">{p.date}</td>
+                      <td>{p.units_sold}</td>
+                      <td>{formatCurrency(p.revenue)}</td>
+                      <td>Orders Managed</td>
+                    </tr>
+                  ))
+                }
+              </tbody>
+            </table>
+          </div>
+        )}
 
         {/* Modal for Comparison */}
         {comparisonModal.open && (
@@ -386,14 +471,14 @@ function App() {
                   <div className="comparison-metrics-row">
                     {(modalFilter === 'all' || modalFilter === 'before') && (
                       <div className="comp-metric">
-                        <span className="comp-label">Avg Daily Sales (Before)</span>
-                        <span className="comp-val">{comparisonModal.data.stats.avg_daily_before.toFixed(1)}</span>
+                        <span className="comp-label">Exact Amount of Products Sold (Before)</span>
+                        <span className="comp-val">{comparisonModal.data.stats.total_before}</span>
                       </div>
                     )}
                     {(modalFilter === 'all' || modalFilter === 'during') && (
                       <div className="comp-metric highlight">
-                        <span className="comp-label">Avg Daily Sales (During)</span>
-                        <span className="comp-val">{comparisonModal.data.stats.avg_daily_during.toFixed(1)}</span>
+                        <span className="comp-label">Exact Amount of Products Sold (During)</span>
+                        <span className="comp-val">{comparisonModal.data.stats.total_during}</span>
                       </div>
                     )}
                     {modalFilter === 'all' && (
