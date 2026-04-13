@@ -3,6 +3,7 @@ import logging
 import time
 from datetime import date
 from core.config import Config
+import os
 
 logger  = logging.getLogger(__name__)
 BASE    = "https://graph.facebook.com/v18.0"

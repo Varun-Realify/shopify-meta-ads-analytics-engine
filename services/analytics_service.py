@@ -32,6 +32,52 @@ def calculate_true_roas(before_avg_rev: float, during_avg_rev: float,
     incremental = max(0, during_avg_rev - before_avg_rev) * duration_days
     return round(incremental / ad_spend, 2) if ad_spend > 0 else 0.0
 
+def total_cogs(orders):
+    return sum(
+        item.get("cost", 0) * item.get("quantity", 0)
+        for o in orders
+        for item in o.get("items", [])
+    )
+
+def calculate_cac(ad_spend, new_customers):
+    return round(ad_spend / new_customers, 2) if new_customers else 0
+
+def get_top_products(orders):
+    product_stats = {}
+
+    for order in orders:
+        for item in order.get("items", []):
+            title = item.get("product_title", "Unknown")
+            revenue = item.get("price", 0) * item.get("quantity", 0)
+            cost = item.get("cost", 0) * item.get("quantity", 0)
+
+            if title not in product_stats:
+                product_stats[title] = {
+                    "product_title": title,
+                    "total_quantity": 0,
+                    "total_revenue": 0.0,
+                    "total_cost": 0.0,
+                    "total_profit": 0.0
+                }
+            
+            product_stats[title]["total_quantity"] += item.get("quantity", 0)
+            product_stats[title]["total_revenue"] += revenue
+            product_stats[title]["total_cost"] += cost
+            product_stats[title]["total_profit"] += (revenue - cost)
+    
+    sorted_products = sorted(
+        product_stats.values(),
+        key=lambda x: x["total_revenue"],
+        reverse=True
+    )
+
+    for p in sorted_products:
+        p["total_revenue"] = round(p["total_revenue"], 2)
+        p["total_cost"] = round(p["total_cost"], 2)
+        p["total_profit"] = round(p["total_profit"], 2)
+
+    return sorted_products
+
 
 # ── Period Classifier ─────────────────────────────────────────────────────────
 
