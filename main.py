@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from routers.api import router
 from routers.charts import router as charts_router
+from routers.merchant_router import router as merchant_router
 
 app = FastAPI(
     title       = "Shopify × Meta Ads Analytics API",
@@ -43,6 +44,7 @@ app.add_middleware(
 
 app.include_router(router, prefix="/api/v1")
 app.include_router(charts_router, prefix="/api/v1/charts")
+app.include_router(merchant_router, prefix="/api")
 
 
 @app.get("/", tags=["Root"])
@@ -60,6 +62,7 @@ def root():
             "sales":            "/api/v1/shopify/sales",
             "campaigns":        "/api/v1/meta/campaigns",
             "analytics":        "/api/v1/analytics/overview",
+            "competitor_track": "/api/v1/competitors/track",
             "before_after":     "/api/v1/analytics/before-after/{product_id}",
             "custom_metrics":   "/api/v1/analytics/metrics",
             "dashboard_image":  "/api/v1/charts/dashboard.png",

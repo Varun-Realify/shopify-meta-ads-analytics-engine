@@ -51,6 +51,12 @@ This application integrates deeply with the **Meta Graph API** to provide:
 - **Incrementality**: Calculates "Sales Lift" by comparing Shopify data against Ad start dates.
 - **Catalog Sync**: Automated product pushing to Meta Commerce Manager.
 
+## 🛍️ Competitor Analysis
+The backend now exposes multi-store Shopify competitor tracking under `/api/v1/competitors/track`.
+- Track multiple public Shopify stores side by side.
+- Compare catalog size, average price, discounts, categories, and best-seller signals.
+- Paste comma-separated store URLs and get a unified summary.
+
 ## 🛠️ Tech Stack
 -   **Backend**: FastAPI (Python) — Handles data ingestion, security, and complex analysis.
 -   **Frontend**: React (Vite) + Recharts — A responsive, high-performance dashboard for business visualization.
