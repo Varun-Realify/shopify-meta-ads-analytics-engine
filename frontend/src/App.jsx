@@ -1,7 +1,8 @@
-import { Activity, AlertCircle, ArrowDownRight, ArrowUpRight, BarChart3, Calendar, DollarSign, LayoutDashboard, ShoppingBag, TrendingUp } from 'lucide-react';
+import { Activity, AlertCircle, ArrowDownRight, ArrowUpRight, BarChart3, Calendar, DollarSign, LayoutDashboard, ShieldCheck, ShoppingBag, TrendingUp } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell as ReCell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import './App.css';
+import GoogleMerchantIntel from './components/GoogleMerchantIntel';
 
 function App() {
   const [data, setData] = useState(null);
@@ -120,13 +121,14 @@ function App() {
       {/* Sidebar / Navigation (Simulated PowerBI Sidebar) */}
       <aside className="sidebar">
         <div className="logo-section">
-          <div className="logo-icon">SR</div>
-          <span>Reports</span>
+          <div className="logo-icon">MI</div>
+          <span>Market Intel</span>
         </div>
         <nav className="sidebar-nav">
           <div className={`nav-item ${activeTab === 'overview' ? 'active' : ''}`} onClick={() => setActiveTab('overview')}><LayoutDashboard size={20} /> <span>Overview</span></div>
           <div className={`nav-item ${activeTab === 'campaigns' ? 'active' : ''}`} onClick={() => setActiveTab('campaigns')}><BarChart3 size={20} /> <span>Campaigns</span></div>
           <div className={`nav-item ${activeTab === 'sales' ? 'active' : ''}`} onClick={() => setActiveTab('sales')}><ShoppingBag size={20} /> <span>Sales</span></div>
+          <div className={`nav-item ${activeTab === 'google' ? 'active' : ''}`} onClick={() => setActiveTab('google')}><ShieldCheck size={20} /> <span>Google Intel</span></div>
         </nav>
       </aside>
 
@@ -135,11 +137,12 @@ function App() {
         <header className="header">
           <div>
             <h1 className="dashboard-title">
-              {activeTab === 'overview' ? 'Executive Summary Dashboard' : 
-               activeTab === 'campaigns' ? 'Campaign Performance Report' : 
-               'Sales Analytics Report'}
+              {activeTab === 'overview' ? 'Ad-Sales Intelligence Dashboard' : 
+               activeTab === 'campaigns' ? 'Profitable Scale Report' : 
+               activeTab === 'sales' ? 'Inventory & Performance' :
+               'Global Market Pricing Index'}
             </h1>
-            <p className="dashboard-subtitle">Real-time Performance Metrics</p>
+            <p className="dashboard-subtitle">Automated Multi-Channel Insights Engine</p>
           </div>
           <div className="header-actions">
             <div className="date-filters">
@@ -218,7 +221,6 @@ function App() {
 
             {/* Charts Section */}
             <div className="charts-layout">
-              {/* Main Sales Over Time Chart */}
               <div className="chart-container glass-panel lg-span">
                 <h3 className="chart-title">Revenue & Ad Spend Trend</h3>
                 <div style={{ width: '100%', height: 300 }}>
@@ -240,7 +242,6 @@ function App() {
                 </div>
               </div>
 
-              {/* Campaign Performance Bar Chart */}
               <div className="chart-container glass-panel sm-span">
                 <h3 className="chart-title">Campaign Spend vs Revenue</h3>
                 <div style={{ width: '100%', height: 300 }}>
@@ -255,7 +256,14 @@ function App() {
                 </div>
               </div>
             </div>
-          </>
+
+            </>
+          )}
+
+        {activeTab === 'google' && (
+          <div className="animate-slide-up">
+            <GoogleMerchantIntel baseUrl={import.meta.env.VITE_API_URL || 'http://localhost:8000'} />
+          </div>
         )}
 
         {/* Tab-specific Tables */}

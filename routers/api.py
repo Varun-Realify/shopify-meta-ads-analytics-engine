@@ -424,6 +424,9 @@ def get_analytics_overview(
         campaign_results = []
         all_recs         = []
 
+        # Pre-fetch sales for the entire period once
+        all_period_sales = shopify_service.get_sales_by_product(start_date, end_date)
+        
         for c in campaigns:
             cs = date.fromisoformat(c["start_time"]) if c["start_time"] else start_date
             ce = date.fromisoformat(c["stop_time"])  if c["stop_time"]  else end_date
@@ -437,9 +440,9 @@ def get_analytics_overview(
             conversions = insights.get("conversions", 0)
             meta_rev    = insights.get("purchase_revenue", 0)
 
-            camp_sales    = shopify_service.get_sales_by_product(cs, ce)
-            total_units   = sum(s["units_sold"] for s in camp_sales.values())
-            total_revenue = sum(s["revenue"]    for s in camp_sales.values())
+            # Use pre-fetched sales instead of re-calling API inside loop
+            total_units   = sum(s["units_sold"] for s in all_period_sales.values())
+            total_revenue = sum(s["revenue"]    for s in all_period_sales.values())
             revenue       = meta_rev if meta_rev > 0 else total_revenue
 
             if "Royal Enfield" in c["name"]:

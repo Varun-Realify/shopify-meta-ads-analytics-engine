@@ -4,3 +4,12 @@ requests==2.31.0
 python-dotenv==1.0.1
 pydantic==2.7.0
 matplotlib
+google-api-python-client
+google-auth
+google-auth-httplib2
+google-auth-oauthlib
+pytrends
+httpx
+thefuzz
+rapidfuzz
+python-Levenshtein
