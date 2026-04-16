@@ -43,7 +43,8 @@ function App() {
   const fetchAnalytics = async () => {
     setLoading(true);
     try {
-      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      // const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const baseUrl = 'http://127.0.0.1:8000';
       const response = await fetch(`${baseUrl}/api/v1/analytics/overview?start_date=${startDate}&end_date=${endDate}`);
       if (!response.ok) throw new Error('Network response was not ok');
       const result = await response.json();
@@ -60,7 +61,8 @@ function App() {
     setComparisonModal({ open: true, data: null, loading: true });
     setModalFilter('all'); // Reset filter when opening new comparison
     try {
-      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      // const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const baseUrl = 'http://127.0.0.1:8000';
       const prodId = productId || 'default';
       const response = await fetch(`${baseUrl}/api/v1/analytics/comparison?campaign_id=${campaignId}&product_id=${prodId}`);
       if (!response.ok) {
