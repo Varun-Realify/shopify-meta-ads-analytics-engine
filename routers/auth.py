@@ -32,7 +32,7 @@ def auth_shopify(shop: str):
     # Build params dictionary for clean encoding
     params = {
         "client_id": SHOPIFY_API_KEY,
-        "scope": "read_products,read_orders,read_customers,read_reports",
+        "scope": "read_products,read_orders,read_customers,read_reports,read_inventory",
         "redirect_uri": REDIRECT_URI,
         "state": "123456789"
     }

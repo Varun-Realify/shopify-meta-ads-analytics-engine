@@ -164,6 +164,25 @@ def get_top_products(shop: str, limit: int = 5):
 
 
 # ═══════════════════════════════════════════════════════════════════════
+@router.get("/shopify/margin-intelligence", tags=["Shopify"])
+def get_margin_intel(shop: str):
+    try:
+        data = shopify_service.get_margin_intelligence(shop)
+        return data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/shopify/inventory-intelligence", tags=["Shopify"])
+def get_inventory_intel(shop: str):
+    try:
+        data = shopify_service.get_inventory_intelligence(shop)
+        return data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # META — CAMPAIGNS
 # ═══════════════════════════════════════════════════════════════════════
 
