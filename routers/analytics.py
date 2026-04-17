@@ -2,123 +2,16 @@ from fastapi import APIRouter, HTTPException
 from datetime import date, timedelta
 from typing import List
 
-from models.schemas import (
-    ConnectionStatus, ProductModel, OrderModel, OrderItem,
-    CampaignMetrics, AnalyticsResponse, OverviewStats,
-    ProductSalesSummary, TopAction, AnalyticsRequest
+from models.shopify_models import OrderModel, OrderItem
+from models.meta_models import CampaignMetrics
+from models.analytics_models import (
+    AnalyticsResponse, OverviewStats, ProductSalesSummary, TopAction
 )
 from services import shopify_service, meta_service, analytics_service
 
-router = APIRouter()
+router = APIRouter(tags=["Analytics"])
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  HEALTH & CONNECTION
-# ═══════════════════════════════════════════════════════════════════════════════
-
-@router.get("/health", tags=["Health"])
-def health_check():
-    return {"status": "ok", "message": "Shopify × Meta Analytics API is running"}
-
-
-@router.get("/connections", response_model=ConnectionStatus, tags=["Health"])
-def test_connections():
-    """Test both Shopify and Meta API connections."""
-    errors = []
-
-    shopify = shopify_service.test_connection()
-    meta    = meta_service.test_connection()
-
-    if not shopify.get("connected"):
-        errors.append(f"Shopify: {shopify.get('error', 'Unknown error')}")
-    if not meta.get("connected"):
-        errors.append(f"Meta: {meta.get('error', 'Unknown error')}")
-
-    return ConnectionStatus(
-        shopify           = shopify.get("connected", False),
-        meta              = meta.get("connected", False),
-        shopify_store     = shopify.get("store"),
-        shopify_currency  = shopify.get("currency"),
-        meta_user         = meta.get("user"),
-        meta_ad_account   = meta.get("ad_account"),
-        errors            = errors,
-    )
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  CATALOG & AUTOMATION
-# ═══════════════════════════════════════════════════════════════════════════════
-
-@router.post("/meta/catalog/sync", tags=["Meta"])
-def sync_shopify_to_meta():
-    """Sync all Shopify products to Meta Catalog."""
-    try:
-        products = shopify_service.get_all_products()
-        results = []
-        for p in products:
-            res = meta_service.create_catalog_product(
-                name=p["title"],
-                description=f"Shopify product {p['title']}",
-                link=f"https://{shopify_service.Config.SHOPIFY_STORE_NAME}/products/{p['id']}",
-                image_url="", # Would normally fetch from Shopify image API
-                price=p["selling_price"],
-                brand=p.get("vendor", "Generic")
-            )
-            results.append({"product": p["title"], "status": res})
-        return {"total_synced": len(results), "details": results}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.get("/shopify/products", tags=["Shopify"])
-def get_products():
-    """Fetch all products from Shopify store."""
-    try:
-        products = shopify_service.get_all_products()
-        return {
-            "count":    len(products),
-            "products": products
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  SHOPIFY — ORDERS
-# ═══════════════════════════════════════════════════════════════════════════════
-
-@router.get("/shopify/orders", tags=["Shopify"])
-def get_orders(
-    start_date: date = date.today() - timedelta(days=30),
-    end_date:   date = date.today()
-):
-    """Fetch all orders in a date range."""
-    try:
-        orders = shopify_service.get_orders(start_date, end_date)
-        result = []
-        for o in orders:
-            items = [
-                OrderItem(
-                    product_id = str(li.get("product_id", "")),
-                    title      = li.get("title", ""),
-                    quantity   = li.get("quantity", 0),
-                    price      = float(li.get("price", 0)),
-                    revenue    = float(li.get("price", 0)) * li.get("quantity", 0),
-                )
-                for li in o.get("line_items", [])
-            ]
-            result.append(OrderModel(
-                id               = str(o["id"]),
-                created_at       = o["created_at"],
-                financial_status = o.get("financial_status", ""),
-                total_price      = float(o.get("total_price", 0)),
-                line_items       = items,
-            ))
-        return {"count": len(result), "orders": result}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/realtime/cross-check", tags=["Realtime"])
+@router.get("/realtime/cross-check")
 def cross_check_realtime(minutes: int = 60):
     """
     Cross-checks Shopify orders in the last 'minutes' with Meta Ad performance.
@@ -151,95 +44,7 @@ def cross_check_realtime(minutes: int = 60):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-
-@router.get("/shopify/sales", tags=["Shopify"])
-def get_sales_summary(
-    start_date: date = date.today() - timedelta(days=30),
-    end_date:   date = date.today()
-):
-    """Get sales aggregated by product."""
-    try:
-        sales = shopify_service.get_sales_by_product(start_date, end_date)
-        return {
-            "period":   f"{start_date} → {end_date}",
-            "count":    len(sales),
-            "sales":    list(sales.values()),
-            "totals": {
-                "units_sold":  sum(s["units_sold"] for s in sales.values()),
-                "revenue":     round(sum(s["revenue"] for s in sales.values()), 2),
-                "order_count": sum(s["order_count"] for s in sales.values()),
-            }
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/shopify/sales/timeseries/{product_id}", tags=["Shopify"])
-def get_sales_timeseries(
-    product_id: str,
-    start_date: date = date.today() - timedelta(days=30),
-    end_date:   date = date.today()
-):
-    """Get day-by-day sales for a specific product."""
-    try:
-        ts = shopify_service.get_daily_sales_timeseries(product_id, start_date, end_date)
-        return {
-            "product_id": product_id,
-            "period":     f"{start_date} → {end_date}",
-            "days":       len(ts),
-            "timeseries": ts,
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  META — CAMPAIGNS
-# ═══════════════════════════════════════════════════════════════════════════════
-
-@router.get("/meta/campaigns", tags=["Meta"])
-def get_campaigns():
-    """Fetch all Meta ad campaigns."""
-    try:
-        campaigns = meta_service.get_all_campaigns()
-        return {"count": len(campaigns), "campaigns": campaigns}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/meta/campaigns/{campaign_id}/insights", tags=["Meta"])
-def get_campaign_insights(
-    campaign_id: str,
-    start_date:  date = date.today() - timedelta(days=30),
-    end_date:    date = date.today()
-):
-    """Get performance insights for a specific campaign."""
-    try:
-        insights = meta_service.get_campaign_insights(campaign_id, start_date, end_date)
-        return {"campaign_id": campaign_id, "period": f"{start_date} → {end_date}", **insights}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/meta/campaigns/{campaign_id}/timeseries", tags=["Meta"])
-def get_campaign_timeseries(
-    campaign_id: str,
-    start_date:  date = date.today() - timedelta(days=30),
-    end_date:    date = date.today()
-):
-    """Get daily spend/performance breakdown for a campaign."""
-    try:
-        ts = meta_service.get_daily_spend_timeseries(campaign_id, start_date, end_date)
-        return {"campaign_id": campaign_id, "days": len(ts), "timeseries": ts}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  ANALYTICS — CORE ENDPOINTS
-# ═══════════════════════════════════════════════════════════════════════════════
-
-@router.get("/analytics/comparison", tags=["Analytics"])
+@router.get("/analytics/comparison")
 def get_campaign_comparison(
     campaign_id: str,
     product_id: str,
@@ -257,7 +62,6 @@ def get_campaign_comparison(
             raise HTTPException(status_code=404, detail="Campaign not found")
 
         # Use the actual campaign start date
-        # Fallback to a month ago if start_time is missing
         try:
             camp_start = date.fromisoformat(target_camp["start_time"])
         except (ValueError, KeyError):
@@ -279,7 +83,6 @@ def get_campaign_comparison(
         
         # If product_id is provided, prioritize product-specific data for incrementality
         if product_id and product_id != 'default':
-            # Check if product exists in Shopify
             all_sales_before = shopify_service.get_daily_sales_timeseries(product_id, pre_start, pre_end)
             all_sales_during = shopify_service.get_daily_sales_timeseries(product_id, camp_start, during_end)
         
@@ -330,12 +133,10 @@ def get_campaign_comparison(
             }
         }
     except Exception as e:
-        import traceback
-        print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/analytics", tags=["Analytics"])
+@router.get("/analytics")
 def get_analytics(
     start_date: date = date.today() - timedelta(days=30),
     end_date:   date = date.today()
@@ -355,8 +156,6 @@ def get_analytics(
         total_spend = 0.0
 
         for c in campaigns:
-            # We filter campaigns that were active in the date range if possible
-            # Meta insights for the specific range
             insights = meta_service.get_campaign_insights(c["id"], start_date, end_date)
             spend = insights.get("spend", 0)
             if spend > 0 or c.get("status") == "ACTIVE":
@@ -387,14 +186,14 @@ def get_analytics(
             },
             "summary": {
                 "roas": round(total_revenue / total_spend, 2) if total_spend > 0 else 0,
-                "profit": round(total_revenue - total_spend, 2) # Simplify, doesn't include COGS here
+                "profit": round(total_revenue - total_spend, 2)
             }
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/analytics/overview", tags=["Analytics"])
+@router.get("/analytics/overview")
 def get_analytics_overview(
     start_date: date = date.today() - timedelta(days=90),
     end_date:   date = date.today()
@@ -440,7 +239,6 @@ def get_analytics_overview(
             conversions = insights.get("conversions", 0)
             meta_rev    = insights.get("purchase_revenue", 0)
 
-            # Use pre-fetched sales instead of re-calling API inside loop
             total_units   = sum(s["units_sold"] for s in all_period_sales.values())
             total_revenue = sum(s["revenue"]    for s in all_period_sales.values())
             revenue       = meta_rev if meta_rev > 0 else total_revenue
@@ -461,11 +259,11 @@ def get_analytics_overview(
             # Period comparison
             period_data   = {"before": {"avg_daily_units": 0, "total_revenue": 0},
                              "during": {"avg_daily_units": 0, "total_revenue": 0}}
-            matched_product = {"title": "Unknown", "match_type": "none"}
+            matched_product = {"title": "Unknown", "match_type": "none", "product_id": None}
 
             if product_map:
                 matched_product = analytics_service.find_matching_product(
-                    c["name"], list(product_map.values()), camp_sales
+                    c["name"], list(product_map.values()), all_period_sales
                 )
                 pid = matched_product["product_id"]
                 if pid:
@@ -616,7 +414,7 @@ def get_analytics_overview(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/analytics/before-after/{product_id}", tags=["Analytics"])
+@router.get("/analytics/before-after/{product_id}")
 def get_before_after_comparison(
     product_id: str,
     campaign_start: date = date.today() - timedelta(days=30),
@@ -652,7 +450,7 @@ def get_before_after_comparison(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/analytics/metrics", tags=["Analytics"])
+@router.get("/analytics/metrics")
 def calculate_custom_metrics(
     revenue:       float = 1000.0,
     ad_spend:      float = 100.0,

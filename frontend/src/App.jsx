@@ -2,7 +2,7 @@ import { Activity, AlertCircle, ArrowDownRight, ArrowUpRight, BarChart3, Calenda
 import { useEffect, useState } from 'react';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell as ReCell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import './App.css';
-import GoogleMerchantIntel from './components/GoogleMerchantIntel';
+// import GoogleMerchantIntel from './components/GoogleMerchantIntel';
 
 function App() {
   const [data, setData] = useState(null);
@@ -128,7 +128,7 @@ function App() {
           <div className={`nav-item ${activeTab === 'overview' ? 'active' : ''}`} onClick={() => setActiveTab('overview')}><LayoutDashboard size={20} /> <span>Overview</span></div>
           <div className={`nav-item ${activeTab === 'campaigns' ? 'active' : ''}`} onClick={() => setActiveTab('campaigns')}><BarChart3 size={20} /> <span>Campaigns</span></div>
           <div className={`nav-item ${activeTab === 'sales' ? 'active' : ''}`} onClick={() => setActiveTab('sales')}><ShoppingBag size={20} /> <span>Sales</span></div>
-          <div className={`nav-item ${activeTab === 'google' ? 'active' : ''}`} onClick={() => setActiveTab('google')}><ShieldCheck size={20} /> <span>Google Intel</span></div>
+          {/* <div className={`nav-item ${activeTab === 'google' ? 'active' : ''}`} onClick={() => setActiveTab('google')}><ShieldCheck size={20} /> <span>Google Intel</span></div> */}
         </nav>
       </aside>
 
@@ -260,11 +260,11 @@ function App() {
             </>
           )}
 
-        {activeTab === 'google' && (
+        {/* {activeTab === 'google' && (
           <div className="animate-slide-up">
             <GoogleMerchantIntel baseUrl={import.meta.env.VITE_API_URL || 'http://localhost:8000'} />
           </div>
-        )}
+        )} */}
 
         {/* Tab-specific Tables */}
         {activeTab === 'overview' ? (
