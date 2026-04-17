@@ -163,14 +163,14 @@ def generate_recommendation(metrics: dict) -> dict:
     warnings = []
 
     if ad_spend == 0 and profit == 0:
-        level    = "⚪ PENDING DATA"
+        level    = " PENDING DATA"
         headline = "No Spend or Revenue tracked yet"
         detail   = "This campaign is active but hasn't spent anything or recorded any sales in the selected period."
         action   = "Wait 24-48 hours for Meta Pixel tracking data to populate."
         priority = 0
 
     elif roas < 1:
-        level    = "🔴 STOP"
+        level    = " STOP"
         headline = "Campaign is LOSING money"
         detail   = (f"Spending $100 returns only ${roas*100:.2f}. "
                     f"Net loss: ${abs(profit):.2f}")
@@ -178,37 +178,37 @@ def generate_recommendation(metrics: dict) -> dict:
         priority = abs(profit)
 
     elif roas < 2:
-        level    = "⚠️ OPTIMIZE"
+        level    = " OPTIMIZE"
         headline = "Marginal returns — needs optimization"
         detail   = f"ROAS {roas:.2f}x barely profitable at {profit_margin:.1f}% margin."
         action   = "Cut budget 30%, A/B test new creatives, refine audience targeting."
         priority = ad_spend * 0.3
 
     elif roas < 3:
-        level    = "✅ SCALE"
+        level    = " SCALE"
         headline = "Good performance — scale carefully"
         detail   = f"ROAS {roas:.2f}x with {profit_margin:.1f}% margin. ${profit:.2f} profit."
         action   = "Increase budget by 20% weekly. Monitor CPA as you scale."
         priority = profit * 0.2
 
     else:
-        level    = "🚀 AGGRESSIVE SCALE"
+        level    = " AGGRESSIVE SCALE"
         headline = "Excellent ROI — scale aggressively"
         detail   = f"ROAS {roas:.2f}x. Every $1 returns ${roas:.2f}. {profit_margin:.1f}% margin."
         action   = "Double the budget. Expand to lookalike audiences immediately."
         priority = profit * 0.5
 
     if sales_lift < 10:
-        warnings.append(f"📉 Low lift (+{sales_lift:.1f}%): Review targeting and creatives.")
+        warnings.append(f" Low lift (+{sales_lift:.1f}%): Review targeting and creatives.")
     if profit_margin < 15:
-        warnings.append(f"💰 Thin margins ({profit_margin:.1f}%): Raise price or cut spend.")
+        warnings.append(f" Thin margins ({profit_margin:.1f}%): Raise price or cut spend.")
     if ctr < 1.0:
-        warnings.append(f"👁️ Low CTR ({ctr:.2f}%): Test new ad images and copy.")
+        warnings.append(f" Low CTR ({ctr:.2f}%): Test new ad images and copy.")
     gross = selling_price - cost_price
     if cpa > gross > 0:
-        warnings.append(f"⚡ CPA (${cpa:.2f}) exceeds gross profit per unit (${gross:.2f}).")
+        warnings.append(f" CPA (${cpa:.2f}) exceeds gross profit per unit (${gross:.2f}).")
     if true_roas > 0 and true_roas < roas * 0.5:
-        warnings.append(f"🔍 True ROAS is only {true_roas:.2f}x — sales may be mostly organic.")
+        warnings.append(f" True ROAS is only {true_roas:.2f}x — sales may be mostly organic.")
 
     return {
         "level":          level,

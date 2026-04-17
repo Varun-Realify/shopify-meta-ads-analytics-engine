@@ -239,10 +239,20 @@ def get_margin_intelligence(shop: str):
             })
 
     # To get costs, we need inventory_item_ids for these variants
-    # Fetch all products to get the mapping
+    # Fetch all products to get the mapping and images
     all_products = get_all_products(shop)
     variant_to_cost_id = {}
+    product_images = {}
+    
     for p in all_products:
+        image_url = None
+        if p.get("image"):
+            image_url = p["image"].get("src")
+        elif p.get("images") and len(p["images"]) > 0:
+            image_url = p["images"][0].get("src")
+            
+        product_images[p["title"]] = image_url
+        
         for v in p.get("variants", []):
             variant_to_cost_id[v["id"]] = v["inventory_item_id"]
 
@@ -281,7 +291,8 @@ def get_margin_intelligence(shop: str):
             "title": title,
             "revenue": round(m["revenue"], 2),
             "margin_pct": round(margin_pct, 1),
-            "is_low": margin_pct < 20
+            "is_low": margin_pct < 20,
+            "image": product_images.get(title)
         })
         
     watchlist.sort(key=lambda x: x["margin_pct"])
