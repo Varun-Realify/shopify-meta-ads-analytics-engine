@@ -154,6 +154,15 @@ def get_sales_intelligence(shop: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/shopify/top-products", tags=["Shopify"])
+def get_top_products(shop: str, limit: int = 5):
+    try:
+        products = shopify_service.get_top_performing_products(shop, limit)
+        return products
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # META — CAMPAIGNS
 # ═══════════════════════════════════════════════════════════════════════

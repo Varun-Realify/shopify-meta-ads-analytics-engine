@@ -29,17 +29,23 @@ def auth_shopify(shop: str):
     # Clean shop domain
     shop = shop.replace("https://", "").replace("http://", "").strip("/")
 
-    # Encode redirect URI to prevent parameter issues
-    encoded_redirect = quote(REDIRECT_URI)
+    # Build params dictionary for clean encoding
+    params = {
+        "client_id": SHOPIFY_API_KEY,
+        "scope": "read_products,read_orders,read_customers,read_reports",
+        "redirect_uri": REDIRECT_URI,
+        "state": "123456789"
+    }
+    
+    import urllib.parse
+    query_string = urllib.parse.urlencode(params)
+    
+    install_url = f"https://{shop}/admin/oauth/authorize?{query_string}"
 
-    install_url = (
-        f"https://{shop}/admin/oauth/authorize"
-        f"?client_id={SHOPIFY_API_KEY}"
-        f"&scope=read_products,read_orders"
-        f"&redirect_uri={encoded_redirect}"
-    )
-
-    print("👉 INSTALL URL:", install_url)
+    print("\n" + "="*50)
+    print("🚀 GENERATED INSTALL URL:")
+    print(install_url)
+    print("="*50 + "\n")
 
     return RedirectResponse(install_url)
 
@@ -51,7 +57,8 @@ def shopify_callback(
     code: str, 
     hmac_header: str = Query(None, alias="hmac"), 
     host: str = Query(None),
-    timestamp: str = Query(None)
+    timestamp: str = Query(None),
+    state: str = Query(None)
 ):
     # 1. Verify HMAC
     params = {"shop": shop, "code": code, "timestamp": timestamp}
@@ -158,8 +165,10 @@ def shopify_callback(
         db.close()
 
     # ✅ REDIRECT BACK TO FRONTEND
-    # Redirecting directly to the Sales Intelligence dashboard ("Intel Screen")
-    frontend_redirect_url = f"https://c516sfpc-5173.inc1.devtunnels.ms/sales?shop={shop}&status=connected"
+    # Dynamically get the frontend URL from environment
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
+    frontend_redirect_url = f"{frontend_url}/sales?shop={shop}&status=connected"
+    
     print(f"✅ SUCCESS! Redirecting to: {frontend_redirect_url}")
     
     return RedirectResponse(url=frontend_redirect_url)
