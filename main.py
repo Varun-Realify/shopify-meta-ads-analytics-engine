@@ -4,9 +4,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers.api import router
+from routers import health, shopify, meta, analytics
 from routers.charts import router as charts_router
-from routers.merchant_router import router as merchant_router
+# from routers.merchant_router import router as merchant_router
 
 app = FastAPI(
     title       = "Shopify × Meta Ads Analytics API",
@@ -42,9 +42,12 @@ app.add_middleware(
     allow_headers     = ["*"],
 )
 
-app.include_router(router, prefix="/api/v1")
+app.include_router(health.router, prefix="/api/v1")
+app.include_router(shopify.router, prefix="/api/v1")
+app.include_router(meta.router, prefix="/api/v1")
+app.include_router(analytics.router, prefix="/api/v1")
 app.include_router(charts_router, prefix="/api/v1/charts")
-app.include_router(merchant_router, prefix="/api")
+# app.include_router(merchant_router, prefix="/api")
 
 
 @app.get("/", tags=["Root"])
@@ -56,7 +59,7 @@ def root():
         "redoc":    "/redoc",
         "endpoints": {
             "health":           "/api/v1/health",
-            "connections":      "/api/v1/connections",
+            # "connections":      "/api/v1/connections",
             "products":         "/api/v1/shopify/products",
             "orders":           "/api/v1/shopify/orders",
             "sales":            "/api/v1/shopify/sales",

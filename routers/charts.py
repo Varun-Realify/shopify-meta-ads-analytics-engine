@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Response
 from datetime import date, timedelta
 from services import chart_service
-from routers.api import get_analytics_overview
+from routers.analytics import get_analytics_overview
 
 router = APIRouter()
 
