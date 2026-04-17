@@ -120,9 +120,11 @@ class AnalyticsResponse(BaseModel):
 
 class ConnectionStatus(BaseModel):
     shopify: bool
+    walmart: bool
     meta: bool
     shopify_store: Optional[str] = None
     shopify_currency: Optional[str] = None
+    walmart_client_id: Optional[str] = None
     meta_user: Optional[str] = None
     meta_ad_account: Optional[str] = None
     errors: List[str] = []

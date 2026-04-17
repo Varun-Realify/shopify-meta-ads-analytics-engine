@@ -1,6 +1,6 @@
-import requests
+import httpx
 import logging
-import time
+import asyncio
 from datetime import date
 from core.config import Config
 
@@ -10,31 +10,32 @@ BASE_URL = f"https://{Config.SHOPIFY_STORE_NAME}/admin/api/{Config.SHOPIFY_API_V
 HEADERS  = {"X-Shopify-Access-Token": Config.SHOPIFY_ACCESS_TOKEN}
 
 
-def safe_get(url, params=None, retries=3):
-    for attempt in range(retries):
-        try:
-            r = requests.get(url, headers=HEADERS, params=params, timeout=15)
-            if r.status_code == 429:
-                time.sleep(2 ** attempt)
-                continue
-            if r.status_code == 401:
-                raise Exception("Shopify: Invalid access token (401)")
-            if r.status_code == 403:
-                raise Exception("Shopify: Forbidden — check API scopes (403)")
-            if r.status_code == 404:
-                return {}
-            r.raise_for_status()
-            return r.json()
-        except requests.exceptions.RequestException as e:
-            if attempt == retries - 1:
-                raise Exception(f"Shopify API error: {e}")
-            time.sleep(2 ** attempt)
-    return {}
+async def safe_get(url, params=None, retries=3):
+    async with httpx.AsyncClient() as client:
+        for attempt in range(retries):
+            try:
+                r = await client.get(url, headers=HEADERS, params=params, timeout=15)
+                if r.status_code == 429:
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+                if r.status_code == 401:
+                    raise Exception("Shopify: Invalid access token (401)")
+                if r.status_code == 403:
+                    raise Exception("Shopify: Forbidden — check API scopes (403)")
+                if r.status_code == 404:
+                    return {}
+                r.raise_for_status()
+                return r.json()
+            except httpx.RequestError as e:
+                if attempt == retries - 1:
+                    raise Exception(f"Shopify API error: {e}")
+                await asyncio.sleep(2 ** attempt)
+        return {}
 
 
-def test_connection() -> dict:
+async def test_connection() -> dict:
     try:
-        data = safe_get(f"{BASE_URL}/shop.json")
+        data = await safe_get(f"{BASE_URL}/shop.json")
         shop = data.get("shop", {})
         return {
             "connected": True,
@@ -47,17 +48,29 @@ def test_connection() -> dict:
         return {"connected": False, "error": str(e)}
 
 
-def get_all_products() -> list:
+async def get_all_products() -> list:
     logger.info("Fetching Shopify products...")
-    data     = safe_get(f"{BASE_URL}/products.json", params={"limit": 250})
+    data     = await safe_get(f"{BASE_URL}/products.json", params={"limit": 250})
     products = data.get("products", [])
     result   = []
 
+    # Parallel cost fetching
+    cost_tasks = []
     for p in products:
         variant     = p["variants"][0] if p["variants"] else {}
-        sell_price  = float(variant.get("price", 0))
         inv_item_id = variant.get("inventory_item_id")
-        cost_price  = _get_product_cost(inv_item_id) if inv_item_id else 0.0
+        if inv_item_id:
+            cost_tasks.append(_get_product_cost(inv_item_id))
+        else:
+            # Wrap 0.0 in a coroutine
+            async def zero_cost(): return 0.0
+            cost_tasks.append(zero_cost())
+
+    costs = await asyncio.gather(*cost_tasks)
+
+    for p, cost in zip(products, costs):
+        variant     = p["variants"][0] if p["variants"] else {}
+        sell_price  = float(variant.get("price", 0))
 
         result.append({
             "id":            str(p["id"]),
@@ -65,7 +78,7 @@ def get_all_products() -> list:
             "vendor":        p.get("vendor", ""),
             "product_type":  p.get("product_type", ""),
             "selling_price": sell_price,
-            "cost_price":    cost_price,
+            "cost_price":    cost,
             "variant_id":    str(variant.get("id", "")),
             "stock":         variant.get("inventory_quantity", 0),
         })
@@ -74,16 +87,16 @@ def get_all_products() -> list:
     return result
 
 
-def _get_product_cost(inventory_item_id) -> float:
+async def _get_product_cost(inventory_item_id) -> float:
     try:
-        data = safe_get(f"{BASE_URL}/inventory_items/{inventory_item_id}.json")
+        data = await safe_get(f"{BASE_URL}/inventory_items/{inventory_item_id}.json")
         cost = data.get("inventory_item", {}).get("cost")
         return float(cost) if cost else 0.0
     except Exception:
         return 0.0
 
 
-def get_orders(start_date: date, end_date: date) -> list:
+async def get_orders(start_date: date, end_date: date) -> list:
     logger.info(f"Fetching orders {start_date} → {end_date}...")
     all_orders = []
     url        = f"{BASE_URL}/orders.json"
@@ -94,28 +107,26 @@ def get_orders(start_date: date, end_date: date) -> list:
         "limit":          250,
     }
 
-    while url:
-        r = requests.get(url, headers=HEADERS, params=params, timeout=15)
-        r.raise_for_status()
-        orders = r.json().get("orders", [])
-        all_orders.extend(orders)
-        
-        # Link header handling for pagination
-        link = r.headers.get("Link")
-        if link and 'rel="next"' in link:
-            url = link.split(';')[0].strip('<>')
-            params = {}
-        else:
-            url = None
+    async with httpx.AsyncClient() as client:
+        while url:
+            r = await client.get(url, headers=HEADERS, params=params, timeout=15)
+            r.raise_for_status()
+            orders = r.json().get("orders", [])
+            all_orders.extend(orders)
+            
+            # Link header handling for pagination
+            link = r.headers.get("Link")
+            if link and 'rel="next"' in link:
+                url = link.split(';')[0].strip('<>')
+                params = {}
+            else:
+                url = None
 
     logger.info(f"Retrieved {len(all_orders)} total orders")
     return all_orders
 
 
-def get_realtime_orders(minutes=1440):
-    """
-    Retrieves recent orders from the last 'minutes' to cross-check with Ads.
-    """
+async def get_realtime_orders(minutes=1440):
     from datetime import datetime, timedelta
     start_time = (datetime.utcnow() - timedelta(minutes=minutes)).isoformat()
     params = {
@@ -123,12 +134,12 @@ def get_realtime_orders(minutes=1440):
         "created_at_min": f"{start_time}Z",
         "limit": 50
     }
-    data = safe_get(f"{BASE_URL}/orders.json", params=params)
+    data = await safe_get(f"{BASE_URL}/orders.json", params=params)
     return data.get("orders", [])
 
 
-def get_sales_by_product(start_date: date, end_date: date) -> dict:
-    orders = get_orders(start_date, end_date)
+async def get_sales_by_product(start_date: date, end_date: date) -> dict:
+    orders = await get_orders(start_date, end_date)
     sales  = {}
 
     for order in orders:
@@ -148,6 +159,13 @@ def get_sales_by_product(start_date: date, end_date: date) -> dict:
                     "order_count": 0,
                     "dates":       [],
                 }
+            
+            sales[pid]["units_sold"]  += qty
+            sales[pid]["revenue"]     += revenue
+            sales[pid]["order_count"] += 1
+    
+    return sales
+
             sales[pid]["units_sold"]  += qty
             sales[pid]["revenue"]     += revenue
             sales[pid]["order_count"] += 1

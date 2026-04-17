@@ -1,3 +1,5 @@
+import httpx
+import asyncio
 from fastapi import APIRouter, HTTPException
 from datetime import date, timedelta
 from typing import List
@@ -7,7 +9,7 @@ from models.schemas import (
     CampaignMetrics, AnalyticsResponse, OverviewStats,
     ProductSalesSummary, TopAction, AnalyticsRequest
 )
-from services import shopify_service, meta_service, analytics_service
+from services import shopify_service, walmart_service, meta_service, analytics_service
 
 router = APIRouter()
 
@@ -17,28 +19,36 @@ router = APIRouter()
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/health", tags=["Health"])
-def health_check():
+async def health_check():
     return {"status": "ok", "message": "Shopify × Meta Analytics API is running"}
 
 
 @router.get("/connections", response_model=ConnectionStatus, tags=["Health"])
-def test_connections():
-    """Test both Shopify and Meta API connections."""
+async def test_connections():
+    """Test Shopify, Walmart, and Meta API connections."""
     errors = []
 
-    shopify = shopify_service.test_connection()
-    meta    = meta_service.test_connection()
+    # Run connection tests in parallel
+    shopify_task = shopify_service.test_connection()
+    walmart_task = walmart_service.test_connection()
+    meta_task    = meta_service.test_connection()
+
+    shopify, walmart, meta = await asyncio.gather(shopify_task, walmart_task, meta_task)
 
     if not shopify.get("connected"):
         errors.append(f"Shopify: {shopify.get('error', 'Unknown error')}")
+    if not walmart.get("connected"):
+        errors.append(f"Walmart: {walmart.get('error', 'Unknown error')}")
     if not meta.get("connected"):
         errors.append(f"Meta: {meta.get('error', 'Unknown error')}")
 
     return ConnectionStatus(
         shopify           = shopify.get("connected", False),
+        walmart           = walmart.get("connected", False),
         meta              = meta.get("connected", False),
         shopify_store     = shopify.get("store"),
         shopify_currency  = shopify.get("currency"),
+        walmart_client_id = walmart.get("client_id"),
         meta_user         = meta.get("user"),
         meta_ad_account   = meta.get("ad_account"),
         errors            = errors,
@@ -50,13 +60,13 @@ def test_connections():
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @router.post("/meta/catalog/sync", tags=["Meta"])
-def sync_shopify_to_meta():
+async def sync_shopify_to_meta():
     """Sync all Shopify products to Meta Catalog."""
     try:
-        products = shopify_service.get_all_products()
+        products = await shopify_service.get_all_products()
         results = []
         for p in products:
-            res = meta_service.create_catalog_product(
+            res = await meta_service.create_catalog_product(
                 name=p["title"],
                 description=f"Shopify product {p['title']}",
                 link=f"https://{shopify_service.Config.SHOPIFY_STORE_NAME}/products/{p['id']}",
@@ -70,10 +80,10 @@ def sync_shopify_to_meta():
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/shopify/products", tags=["Shopify"])
-def get_products():
+async def get_products():
     """Fetch all products from Shopify store."""
     try:
-        products = shopify_service.get_all_products()
+        products = await shopify_service.get_all_products()
         return {
             "count":    len(products),
             "products": products
@@ -87,13 +97,13 @@ def get_products():
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/shopify/orders", tags=["Shopify"])
-def get_orders(
+async def get_orders(
     start_date: date = date.today() - timedelta(days=30),
     end_date:   date = date.today()
 ):
     """Fetch all orders in a date range."""
     try:
-        orders = shopify_service.get_orders(start_date, end_date)
+        orders = await shopify_service.get_orders(start_date, end_date)
         result = []
         for o in orders:
             items = [
@@ -119,18 +129,20 @@ def get_orders(
 
 
 @router.get("/realtime/cross-check", tags=["Realtime"])
-def cross_check_realtime(minutes: int = 60):
+async def cross_check_realtime(minutes: int = 60):
     """
     Cross-checks Shopify orders in the last 'minutes' with Meta Ad performance.
     """
     try:
-        shopify_orders = shopify_service.get_realtime_orders(minutes)
+        shopify_orders = await shopify_service.get_realtime_orders(minutes)
         total_shopify_revenue = sum(float(o.get('total_price', 0)) for o in shopify_orders)
         order_count = len(shopify_orders)
 
-        # Basic health check for Meta
-        meta_status = meta_service.test_connection()
-        campaigns = meta_service.get_all_campaigns()
+        # parallelize
+        meta_status_task = meta_service.test_connection()
+        campaigns_task = meta_service.get_all_campaigns()
+        meta_status, campaigns = await asyncio.gather(meta_status_task, campaigns_task)
+
         active_campaigns = [c for c in campaigns if c['status'] == 'ACTIVE']
 
         return {
@@ -151,15 +163,44 @@ def cross_check_realtime(minutes: int = 60):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+#  WALMART — PRODUCTS & ORDERS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/walmart/products", tags=["Walmart"])
+async def get_walmart_products():
+    """Fetch all products from Walmart Marketplace."""
+    try:
+        products = await walmart_service.get_all_products()
+        return {
+            "count":    len(products),
+            "products": products
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/walmart/orders", tags=["Walmart"])
+async def get_walmart_orders(
+    start_date: date = date.today() - timedelta(days=30),
+    end_date:   date = date.today()
+):
+    """Fetch all Walmart orders in a date range."""
+    try:
+        orders = await walmart_service.get_orders(start_date, end_date)
+        return {"count": len(orders), "orders": orders}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/shopify/sales", tags=["Shopify"])
-def get_sales_summary(
+async def get_sales_summary(
     start_date: date = date.today() - timedelta(days=30),
     end_date:   date = date.today()
 ):
     """Get sales aggregated by product."""
     try:
-        sales = shopify_service.get_sales_by_product(start_date, end_date)
+        sales = await shopify_service.get_sales_by_product(start_date, end_date)
         return {
             "period":   f"{start_date} → {end_date}",
             "count":    len(sales),
@@ -175,14 +216,14 @@ def get_sales_summary(
 
 
 @router.get("/shopify/sales/timeseries/{product_id}", tags=["Shopify"])
-def get_sales_timeseries(
+async def get_sales_timeseries(
     product_id: str,
     start_date: date = date.today() - timedelta(days=30),
     end_date:   date = date.today()
 ):
     """Get day-by-day sales for a specific product."""
     try:
-        ts = shopify_service.get_daily_sales_timeseries(product_id, start_date, end_date)
+        ts = await shopify_service.get_daily_sales_timeseries(product_id, start_date, end_date)
         return {
             "product_id": product_id,
             "period":     f"{start_date} → {end_date}",
@@ -198,38 +239,38 @@ def get_sales_timeseries(
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/meta/campaigns", tags=["Meta"])
-def get_campaigns():
+async def get_campaigns():
     """Fetch all Meta ad campaigns."""
     try:
-        campaigns = meta_service.get_all_campaigns()
+        campaigns = await meta_service.get_all_campaigns()
         return {"count": len(campaigns), "campaigns": campaigns}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/meta/campaigns/{campaign_id}/insights", tags=["Meta"])
-def get_campaign_insights(
+async def get_campaign_insights(
     campaign_id: str,
     start_date:  date = date.today() - timedelta(days=30),
     end_date:    date = date.today()
 ):
     """Get performance insights for a specific campaign."""
     try:
-        insights = meta_service.get_campaign_insights(campaign_id, start_date, end_date)
+        insights = await meta_service.get_campaign_insights(campaign_id, start_date, end_date)
         return {"campaign_id": campaign_id, "period": f"{start_date} → {end_date}", **insights}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/meta/campaigns/{campaign_id}/timeseries", tags=["Meta"])
-def get_campaign_timeseries(
+async def get_campaign_timeseries(
     campaign_id: str,
     start_date:  date = date.today() - timedelta(days=30),
     end_date:    date = date.today()
 ):
     """Get daily spend/performance breakdown for a campaign."""
     try:
-        ts = meta_service.get_daily_spend_timeseries(campaign_id, start_date, end_date)
+        ts = await meta_service.get_daily_spend_timeseries(campaign_id, start_date, end_date)
         return {"campaign_id": campaign_id, "days": len(ts), "timeseries": ts}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

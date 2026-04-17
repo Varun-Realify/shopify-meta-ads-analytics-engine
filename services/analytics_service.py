@@ -36,7 +36,7 @@ def total_cogs(orders):
     return sum(
         item.get("cost", 0) * item.get("quantity", 0)
         for o in orders
-        for item in o.get("items", [])
+        for item in o.get("line_items", []) # Fixed line_items check
     )
 
 def calculate_cac(ad_spend, new_customers):
@@ -46,8 +46,8 @@ def get_top_products(orders):
     product_stats = {}
 
     for order in orders:
-        for item in order.get("items", []):
-            title = item.get("product_title", "Unknown")
+        for item in order.get("line_items", []): # Fixed line_items check
+            title = item.get("title", "Unknown")
             revenue = item.get("price", 0) * item.get("quantity", 0)
             cost = item.get("cost", 0) * item.get("quantity", 0)
 

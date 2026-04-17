@@ -9,6 +9,11 @@ class Config:
     SHOPIFY_ACCESS_TOKEN = os.getenv("SHOPIFY_ACCESS_TOKEN")
     SHOPIFY_API_VERSION  = os.getenv("SHOPIFY_API_VERSION", "2024-01")
 
+    # WALMART
+    WALMART_CLIENT_ID     = os.getenv("WALMART_CLIENT_ID")
+    WALMART_CLIENT_SECRET = os.getenv("WALMART_CLIENT_SECRET")
+    WALMART_CHANNEL_TYPE  = os.getenv("WALMART_CHANNEL_TYPE")
+
     # META
     META_APP_ID          = os.getenv("META_APP_ID")
     META_APP_SECRET      = os.getenv("META_APP_SECRET")
