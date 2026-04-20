@@ -5,13 +5,13 @@ from services import shopify_service, meta_service
 router = APIRouter(prefix="/meta", tags=["Meta"])
 
 @router.post("/catalog/sync")
-def sync_shopify_to_meta():
+async def sync_shopify_to_meta():
     """Sync all Shopify products to Meta Catalog."""
     try:
-        products = shopify_service.get_all_products()
+        products = await shopify_service.get_all_products()
         results = []
         for p in products:
-            res = meta_service.create_catalog_product(
+            res = await meta_service.create_catalog_product(
                 name=p["title"],
                 description=f"Shopify product {p['title']}",
                 link=f"https://{shopify_service.Config.SHOPIFY_STORE_NAME}/products/{p['id']}",
@@ -26,24 +26,24 @@ def sync_shopify_to_meta():
 
 
 @router.get("/campaigns")
-def get_campaigns():
+async def get_campaigns():
     """Fetch all Meta ad campaigns."""
     try:
-        campaigns = meta_service.get_all_campaigns()
+        campaigns = await meta_service.get_all_campaigns()
         return {"count": len(campaigns), "campaigns": campaigns}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/campaigns/{campaign_id}/insights")
-def get_campaign_insights(
+async def get_campaign_insights(
     campaign_id: str,
     start_date:  date = date.today() - timedelta(days=30),
     end_date:    date = date.today()
 ):
     """Get performance insights for a specific campaign."""
     try:
-        insights = meta_service.get_campaign_insights(campaign_id, start_date, end_date)
+        insights = await meta_service.get_campaign_insights(campaign_id, start_date, end_date)
         return {"campaign_id": campaign_id, "period": f"{start_date} → {end_date}", **insights}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

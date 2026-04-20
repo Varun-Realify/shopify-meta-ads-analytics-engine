@@ -7,10 +7,10 @@ from services import shopify_service
 router = APIRouter(prefix="/shopify", tags=["Shopify"])
 
 @router.get("/products")
-def get_products():
+async def get_products():
     """Fetch all products from Shopify store."""
     try:
-        products = shopify_service.get_all_products()
+        products = await shopify_service.get_all_products()
         return {
             "count":    len(products),
             "products": products
@@ -20,13 +20,13 @@ def get_products():
 
 
 @router.get("/orders")
-def get_orders(
+async def get_orders(
     start_date: date = date.today() - timedelta(days=30),
     end_date:   date = date.today()
 ):
     """Fetch all orders in a date range."""
     try:
-        orders = shopify_service.get_orders(start_date, end_date)
+        orders = await shopify_service.get_orders(start_date, end_date)
         result = []
         for o in orders:
             items = [

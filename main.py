@@ -4,7 +4,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import health, shopify, meta, analytics
+from routers import health, shopify, meta, analytics, woocommerce
 from routers.charts import router as charts_router
 # from routers.merchant_router import router as merchant_router
 
@@ -13,19 +13,19 @@ app = FastAPI(
     description = """
 ## 📊 Shopify × Meta Ads Analytics Engine
 
-Analyze your Shopify store performance against Meta ad campaigns.
+Analyze your Shopify and WooCommerce store performance against Meta ad campaigns.
 
 ### Features
-- ✅ **Real Shopify Data** — Products, Orders, Revenue
+- ✅ **Real eCommerce Data** — Shopify & WooCommerce Products, Orders, Revenue
 - ✅ **Real Meta Ads Data** — Campaigns, Spend, Impressions, CTR
 - ✅ **Before vs After Analysis** — Sales impact of ad campaigns
 - ✅ **Profit & ROAS Calculations** — True ROI per campaign
 - ✅ **AI Recommendations** — STOP / OPTIMIZE / SCALE decisions
 
 ### Quick Start
-1. `GET /connections` — Verify both APIs are connected
-2. `GET /shopify/products` — See your products
-3. `GET /shopify/orders` — See your orders
+1. `GET /connections` — Verify all APIs are connected
+2. `GET /shopify/products` or `GET /woocommerce/products` — See your products
+3. `GET /shopify/orders` or `GET /woocommerce/orders` — See your orders
 4. `GET /meta/campaigns` — See your ad campaigns
 5. `GET /analytics/overview` — Full performance report
     """,
@@ -45,6 +45,7 @@ app.add_middleware(
 app.include_router(health.router, prefix="/api/v1")
 app.include_router(shopify.router, prefix="/api/v1")
 app.include_router(meta.router, prefix="/api/v1")
+app.include_router(woocommerce.router, prefix="/api/v1")
 app.include_router(analytics.router, prefix="/api/v1")
 app.include_router(charts_router, prefix="/api/v1/charts")
 # app.include_router(merchant_router, prefix="/api")

@@ -1,5 +1,6 @@
-import requests
+import httpx
 import logging
+import asyncio
 import time
 from datetime import date
 from core.config import Config
@@ -11,29 +12,30 @@ TOKEN   = Config.META_ACCESS_TOKEN
 AD_ACC  = Config.META_AD_ACCOUNT_ID
 
 
-def safe_get(url, params=None, retries=3) -> dict:
+async def safe_get(url, params=None, retries=3) -> dict:
     if params is None:
         params = {}
     params["access_token"] = TOKEN
 
-    for attempt in range(retries):
-        try:
-            r    = requests.get(url, params=params, timeout=15)
-            data = r.json()
-            if "error" in data:
-                err = data["error"]
-                raise Exception(f"Meta API Error {err.get('code')}: {err.get('message')}")
-            return data
-        except Exception as e:
-            if attempt == retries - 1:
-                raise
-            time.sleep(2 ** attempt)
+    async with httpx.AsyncClient() as client:
+        for attempt in range(retries):
+            try:
+                r    = await client.get(url, params=params, timeout=15.0)
+                data = r.json()
+                if "error" in data:
+                    err = data["error"]
+                    raise Exception(f"Meta API Error {err.get('code')}: {err.get('message')}")
+                return data
+            except Exception as e:
+                if attempt == retries - 1:
+                    raise
+                await asyncio.sleep(2 ** attempt)
     return {}
 
 
-def test_connection() -> dict:
+async def test_connection() -> dict:
     try:
-        data = safe_get(f"{BASE}/me", params={"fields": "id,name"})
+        data = await safe_get(f"{BASE}/me", params={"fields": "id,name"})
         return {
             "connected":  True,
             "user":       data.get("name", ""),
@@ -44,9 +46,9 @@ def test_connection() -> dict:
         return {"connected": False, "error": str(e)}
 
 
-def get_all_campaigns() -> list:
+async def get_all_campaigns() -> list:
     logger.info("Fetching Meta campaigns...")
-    data      = safe_get(
+    data      = await safe_get(
         f"{BASE}/{AD_ACC}/campaigns",
         params={"fields": "id,name,status,objective,start_time,stop_time,daily_budget,lifetime_budget"}
     )
@@ -72,9 +74,9 @@ def get_all_campaigns() -> list:
     return result
 
 
-def get_campaign_insights(campaign_id: str, start_date: date, end_date: date) -> dict:
+async def get_campaign_insights(campaign_id: str, start_date: date, end_date: date) -> dict:
     try:
-        data = safe_get(
+        data = await safe_get(
             f"{BASE}/{campaign_id}/insights",
             params={
                 "fields":     "spend,impressions,clicks,actions,action_values,ctr,cpm,reach",
@@ -111,7 +113,7 @@ def get_campaign_insights(campaign_id: str, start_date: date, end_date: date) ->
         return {}
 
 
-def create_catalog_product(name: str, description: str, link: str, image_url: str, price: float, brand: str):
+async def create_catalog_product(name: str, description: str, link: str, image_url: str, price: float, brand: str):
     """
     EXPERIMENTAL: Add a product to your Meta Catalog via API.
     Requires 'catalog_id' and 'ads_management' permissions.
@@ -142,11 +144,12 @@ def create_catalog_product(name: str, description: str, link: str, image_url: st
         ],
         "access_token": TOKEN
     }
-    r = requests.post(url, json=payload)
-    return r.json()
+    async with httpx.AsyncClient() as client:
+        r = await client.post(url, json=payload)
+        return r.json()
 
 
-def create_test_campaign(name: str):
+async def create_test_campaign(name: str):
     """
     Experimental: Create a draft campaign for verification.
     Requires 'ads_management' permission.
