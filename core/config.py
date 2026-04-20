@@ -25,3 +25,8 @@ class Config:
     # ANALYSIS
     ANALYSIS_WINDOW_DAYS = 30
     TARGET_PROFIT_MARGIN = 20.0
+
+    # WOOCOMMERCE
+    WOO_URL             = os.getenv("WOO_URL")
+    WOO_CONSUMER_KEY    = os.getenv("WOO_CONSUMER_KEY")
+    WOO_CONSUMER_SECRET = os.getenv("WOO_CONSUMER_SECRET")
