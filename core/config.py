@@ -19,10 +19,17 @@ class Config:
     GOOGLE_MERCHANT_ID   = os.getenv("GOOGLE_MERCHANT_ID")
     GOOGLE_SERVICE_ACCOUNT_JSON_PATH = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON_PATH")
 
-    # WOOCOMMERCE
+    # WOOCOMMERCE (Standard/InstaWP)
     WOO_URL              = os.getenv("WOO_URL")
     WOO_CONSUMER_KEY     = os.getenv("WOO_CONSUMER_KEY")
     WOO_CONSUMER_SECRET  = os.getenv("WOO_CONSUMER_SECRET")
+
+    # LOCALWP (Local by Flywheel / Live Link)
+    LOCALWP_URL              = os.getenv("LOCALWP_URL")
+    LOCALWP_CONSUMER_KEY     = os.getenv("LOCALWP_CONSUMER_KEY")
+    LOCALWP_CONSUMER_SECRET  = os.getenv("LOCALWP_CONSUMER_SECRET")
+    LOCALWP_LIVE_USERNAME    = os.getenv("LOCALWP_LIVE_USERNAME")
+    LOCALWP_LIVE_PASSWORD    = os.getenv("LOCALWP_LIVE_PASSWORD")
 
     # COMPETITOR CONFIG
     COMPETITOR_URLS      = os.getenv("COMPETITOR_URLS", "").split(",")
