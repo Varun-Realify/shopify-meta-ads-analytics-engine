@@ -19,6 +19,11 @@ class Config:
     GOOGLE_MERCHANT_ID   = os.getenv("GOOGLE_MERCHANT_ID")
     GOOGLE_SERVICE_ACCOUNT_JSON_PATH = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON_PATH")
 
+    # WOOCOMMERCE
+    WOO_URL              = os.getenv("WOO_URL")
+    WOO_CONSUMER_KEY     = os.getenv("WOO_CONSUMER_KEY")
+    WOO_CONSUMER_SECRET  = os.getenv("WOO_CONSUMER_SECRET")
+
     # COMPETITOR CONFIG
     COMPETITOR_URLS      = os.getenv("COMPETITOR_URLS", "").split(",")
 

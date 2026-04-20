@@ -1,29 +1,30 @@
 from fastapi import APIRouter, HTTPException
 from datetime import date, timedelta
 from typing import List
+import asyncio
 
 from models.shopify_models import OrderModel, OrderItem
 from models.meta_models import CampaignMetrics
 from models.analytics_models import (
     AnalyticsResponse, OverviewStats, ProductSalesSummary, TopAction
 )
-from services import shopify_service, meta_service, analytics_service
+from services import shopify_service, meta_service, analytics_service, woocommerce_service
 
 router = APIRouter(tags=["Analytics"])
 
 @router.get("/realtime/cross-check")
-def cross_check_realtime(minutes: int = 60):
+async def cross_check_realtime(minutes: int = 60):
     """
     Cross-checks Shopify orders in the last 'minutes' with Meta Ad performance.
     """
     try:
-        shopify_orders = shopify_service.get_realtime_orders(minutes)
+        shopify_orders = await shopify_service.get_realtime_orders(minutes)
         total_shopify_revenue = sum(float(o.get('total_price', 0)) for o in shopify_orders)
         order_count = len(shopify_orders)
 
         # Basic health check for Meta
-        meta_status = meta_service.test_connection()
-        campaigns = meta_service.get_all_campaigns()
+        meta_status = await meta_service.test_connection()
+        campaigns = await meta_service.get_all_campaigns()
         active_campaigns = [c for c in campaigns if c['status'] == 'ACTIVE']
 
         return {
@@ -45,7 +46,7 @@ def cross_check_realtime(minutes: int = 60):
 
 
 @router.get("/analytics/comparison")
-def get_campaign_comparison(
+async def get_campaign_comparison(
     campaign_id: str,
     product_id: str,
     window_days: int = 30
@@ -56,7 +57,7 @@ def get_campaign_comparison(
     """
     try:
         # 1. Start by getting campaign details to find the start date
-        campaigns = meta_service.get_all_campaigns()
+        campaigns = await meta_service.get_all_campaigns()
         target_camp = next((c for c in campaigns if c["id"] == campaign_id), None)
         if not target_camp:
             raise HTTPException(status_code=404, detail="Campaign not found")
@@ -78,13 +79,13 @@ def get_campaign_comparison(
         if during_end > today: during_end = today
         
         # Get historical sales for the product
-        all_sales_before = shopify_service.get_daily_sales_timeseries_all(pre_start, pre_end)
-        all_sales_during = shopify_service.get_daily_sales_timeseries_all(camp_start, during_end)
+        all_sales_before = await shopify_service.get_daily_sales_timeseries_all(pre_start, pre_end)
+        all_sales_during = await shopify_service.get_daily_sales_timeseries_all(camp_start, during_end)
         
         # If product_id is provided, prioritize product-specific data for incrementality
         if product_id and product_id != 'default':
-            all_sales_before = shopify_service.get_daily_sales_timeseries(product_id, pre_start, pre_end)
-            all_sales_during = shopify_service.get_daily_sales_timeseries(product_id, camp_start, during_end)
+            all_sales_before = await shopify_service.get_daily_sales_timeseries(product_id, pre_start, pre_end)
+            all_sales_during = await shopify_service.get_daily_sales_timeseries(product_id, camp_start, during_end)
         
         # Ensure we have data for all days in the range (fill zeros)
         def fill_days(data_list, start, end):
@@ -137,26 +138,41 @@ def get_campaign_comparison(
 
 
 @router.get("/analytics")
-def get_analytics(
+async def get_analytics(
     start_date: date = date.today() - timedelta(days=30),
     end_date:   date = date.today()
 ):
     """
-    Get generic analytics for Shopify and Meta Ads in a date range.
+    Get generic analytics for Shopify, WooCommerce and Meta Ads in a date range.
     """
     try:
-        # Fetch Sales from Shopify
-        sales_data = shopify_service.get_sales_by_product(start_date, end_date)
-        total_revenue = sum(s["revenue"] for s in sales_data.values())
-        total_units = sum(s["units_sold"] for s in sales_data.values())
+        # Fetch Sales concurrently
+        shopify_sales_task = shopify_service.get_sales_by_product(start_date, end_date)
+        woo_sales_task = woocommerce_service.get_sales_by_product(start_date, end_date)
+        campaigns_task = meta_service.get_all_campaigns()
+        
+        shopify_sales_data, woo_sales_data, campaigns = await asyncio.gather(
+            shopify_sales_task, woo_sales_task, campaigns_task
+        )
+
+        total_shopify_revenue = sum(s["revenue"] for s in shopify_sales_data.values())
+        total_shopify_units = sum(s["units_sold"] for s in shopify_sales_data.values())
+        
+        total_woo_revenue = sum(s["revenue"] for s in woo_sales_data.values())
+        total_woo_units = sum(s["units_sold"] for s in woo_sales_data.values())
+
+        total_revenue = total_shopify_revenue + total_woo_revenue
+        total_units = total_shopify_units + total_woo_units
 
         # Fetch Ads data from Meta
-        campaigns = meta_service.get_all_campaigns()
         ad_summary = []
         total_spend = 0.0
 
-        for c in campaigns:
-            insights = meta_service.get_campaign_insights(c["id"], start_date, end_date)
+        # Run insight fetches concurrently
+        insight_tasks = [meta_service.get_campaign_insights(c["id"], start_date, end_date) for c in campaigns]
+        insights_results = await asyncio.gather(*insight_tasks)
+
+        for c, insights in zip(campaigns, insights_results):
             spend = insights.get("spend", 0)
             if spend > 0 or c.get("status") == "ACTIVE":
                 total_spend += spend
@@ -175,10 +191,16 @@ def get_analytics(
                 "end": end_date
             },
             "shopify": {
-                "total_revenue": total_revenue,
-                "total_units_sold": total_units,
-                "product_breakdown": list(sales_data.values()),
-                "daily_sales": shopify_service.get_daily_sales_timeseries_all(start_date, end_date)
+                "total_revenue": total_shopify_revenue,
+                "total_units_sold": total_shopify_units,
+                "product_breakdown": list(shopify_sales_data.values()),
+                "daily_sales": await shopify_service.get_daily_sales_timeseries_all(start_date, end_date)
+            },
+            "woocommerce": {
+                "total_revenue": total_woo_revenue,
+                "total_units_sold": total_woo_units,
+                "product_breakdown": list(woo_sales_data.values()),
+                "daily_sales": await woocommerce_service.get_daily_sales_timeseries_all(start_date, end_date)
             },
             "meta_ads": {
                 "total_spend": total_spend,
@@ -194,23 +216,30 @@ def get_analytics(
 
 
 @router.get("/analytics/overview")
-def get_analytics_overview(
+async def get_analytics_overview(
     start_date: date = date.today() - timedelta(days=90),
     end_date:   date = date.today()
 ):
     """
     Full analytics pipeline:
     - Pulls Shopify products + orders
+    - Pulls WooCommerce products + orders
     - Pulls Meta campaigns + insights
     - Computes all KPIs per campaign
     - Returns complete performance overview
     """
     try:
-        # Fetch base data
-        products     = shopify_service.get_all_products()
+        # Fetch base data concurrently
+        products_task = shopify_service.get_all_products()
+        shopify_sales_task = shopify_service.get_sales_by_product(start_date, end_date)
+        woo_sales_task = woocommerce_service.get_sales_by_product(start_date, end_date)
+        campaigns_task = meta_service.get_all_campaigns()
+        
+        products, all_shopify_period_sales, all_woo_period_sales, campaigns = await asyncio.gather(
+            products_task, shopify_sales_task, woo_sales_task, campaigns_task
+        )
+        
         product_map  = {p["id"]: p for p in products}
-        sales        = shopify_service.get_sales_by_product(start_date, end_date)
-        campaigns    = meta_service.get_all_campaigns()
 
         avg_cost = 0.0
         avg_sell = 0.0
@@ -221,26 +250,30 @@ def get_analytics_overview(
             avg_sell = sum(sells) / len(sells) if sells else 0
 
         campaign_results = []
-        all_recs         = []
-
-        # Pre-fetch sales for the entire period once
-        all_period_sales = shopify_service.get_sales_by_product(start_date, end_date)
         
+        total_units   = sum(s["units_sold"] for s in all_shopify_period_sales.values()) + \
+                     sum(s.get("units_sold", 0) for s in all_woo_period_sales.values())
+        total_revenue = sum(s["revenue"]    for s in all_shopify_period_sales.values()) + \
+                     sum(s.get("revenue", 0) for s in all_woo_period_sales.values())
+        
+        # Insight fetching
+        insight_tasks = []
         for c in campaigns:
             cs = date.fromisoformat(c["start_time"]) if c["start_time"] else start_date
             ce = date.fromisoformat(c["stop_time"])  if c["stop_time"]  else end_date
             cs = max(cs, start_date)
             ce = min(ce, end_date)
-
-            insights    = meta_service.get_campaign_insights(c["id"], cs, ce)
+            insight_tasks.append(meta_service.get_campaign_insights(c["id"], cs, ce))
+            
+        insights_results = await asyncio.gather(*insight_tasks)
+        
+        for c, insights in zip(campaigns, insights_results):
             ad_spend    = insights.get("spend", c.get("total_budget", 0))
             impressions = insights.get("impressions", 0)
             clicks      = insights.get("clicks", 0)
             conversions = insights.get("conversions", 0)
-            meta_rev    = insights.get("purchase_revenue", 0)
+            meta_rev    = insights.get("revenue", 0) # Changed from purchase_revenue to revenue as per meta_service
 
-            total_units   = sum(s["units_sold"] for s in all_period_sales.values())
-            total_revenue = sum(s["revenue"]    for s in all_period_sales.values())
             revenue       = meta_rev if meta_rev > 0 else total_revenue
 
             if "Royal Enfield" in c["name"]:
