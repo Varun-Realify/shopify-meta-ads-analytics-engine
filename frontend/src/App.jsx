@@ -1,14 +1,15 @@
-import { Activity, AlertCircle, ArrowDownRight, ArrowUpRight, BarChart3, Calendar, DollarSign, LayoutDashboard, ShieldCheck, ShoppingBag, TrendingUp } from 'lucide-react';
+import { AlertCircle, ShoppingBag } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell as ReCell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import './App.css';
 // import GoogleMerchantIntel from './components/GoogleMerchantIntel';
 
 function App() {
   const [data, setData] = useState(null);
+  const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [activeTab, setActiveTab] = useState('overview');
+  
+  const [activeTab, setActiveTab] = useState('products');
   const [comparisonModal, setComparisonModal] = useState({ open: false, data: null, loading: false });
   const [modalFilter, setModalFilter] = useState('all'); // 'all', 'before', 'during'
   
@@ -33,22 +34,28 @@ function App() {
     </th>
   );
 
-  // Date Filters
-  const [startDate, setStartDate] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 30);
-    return d.toISOString().split('T')[0];
-  });
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
-
   const fetchAnalytics = async () => {
     setLoading(true);
     try {
       const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-      const response = await fetch(`${baseUrl}/api/v1/analytics/overview?start_date=${startDate}&end_date=${endDate}`);
-      if (!response.ok) throw new Error('Network response was not ok');
-      const result = await response.json();
-      setData(result);
+      // Use fixed dates or let backend handle defaults by removing them from the URL if needed
+      const [analyticsRes, productsRes] = await Promise.all([
+        fetch(`${baseUrl}/api/v1/analytics/overview`),
+        fetch(`${baseUrl}/api/v1/woocommerce/products`)
+      ]);
+
+      if (!analyticsRes.ok) {
+        const errorData = await analyticsRes.json();
+        throw new Error(errorData.detail || 'Analytics fetch failed');
+      }
+      const analyticsData = await analyticsRes.json();
+      setData(analyticsData);
+
+      if (productsRes.ok) {
+        const prodData = await productsRes.json();
+        setProducts(prodData || []);
+      }
+
       setError(null);
     } catch (err) {
       setError(err.message);
@@ -78,12 +85,12 @@ function App() {
 
   useEffect(() => {
     fetchAnalytics();
-  }, [startDate, endDate]);
+  }, []);
 
   if (loading) return (
     <div className="loader-container">
       <div className="spinner"></div>
-      <p style={{ color: 'var(--text-secondary)' }}>Crunching Shopify & Meta Data...</p>
+      <p style={{ color: 'var(--text-secondary)' }}>Crunching WooCommerce Data...</p>
     </div>
   );
 
@@ -100,7 +107,7 @@ function App() {
 
   if (!data) return null;
 
-  const { overview, campaigns, shopify_daily = [], top_orders = [] } = data;
+  const { overview = {}, campaigns = [], shopify_daily = [], top_orders = [] } = data || {};
 
   const formatCurrency = (value) => 
     new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(value);
@@ -125,9 +132,10 @@ function App() {
           <span>Market Intel</span>
         </div>
         <nav className="sidebar-nav">
-          <div className={`nav-item ${activeTab === 'overview' ? 'active' : ''}`} onClick={() => setActiveTab('overview')}><LayoutDashboard size={20} /> <span>Overview</span></div>
-          <div className={`nav-item ${activeTab === 'campaigns' ? 'active' : ''}`} onClick={() => setActiveTab('campaigns')}><BarChart3 size={20} /> <span>Campaigns</span></div>
-          <div className={`nav-item ${activeTab === 'sales' ? 'active' : ''}`} onClick={() => setActiveTab('sales')}><ShoppingBag size={20} /> <span>Sales</span></div>
+          {/* <div className={`nav-item ${activeTab === 'overview' ? 'active' : ''}`} onClick={() => setActiveTab('overview')}><LayoutDashboard size={20} /> <span>Overview</span></div> */}
+          {/* <div className={`nav-item ${activeTab === 'campaigns' ? 'active' : ''}`} onClick={() => setActiveTab('campaigns')}><BarChart3 size={20} /> <span>Campaigns</span></div> */}
+          {/* <div className={`nav-item ${activeTab === 'sales' ? 'active' : ''}`} onClick={() => setActiveTab('sales')}><ShoppingBag size={20} /> <span>Sales</span></div> */}
+          <div className={`nav-item ${activeTab === 'products' ? 'active' : ''}`} onClick={() => setActiveTab('products')}><ShoppingBag size={20} /> <span>WooCommerce</span></div>
           {/* <div className={`nav-item ${activeTab === 'google' ? 'active' : ''}`} onClick={() => setActiveTab('google')}><ShieldCheck size={20} /> <span>Google Intel</span></div> */}
         </nav>
       </aside>
@@ -137,32 +145,18 @@ function App() {
         <header className="header">
           <div>
             <h1 className="dashboard-title">
-              {activeTab === 'overview' ? 'Ad-Sales Intelligence Dashboard' : 
-               activeTab === 'campaigns' ? 'Profitable Scale Report' : 
-               activeTab === 'sales' ? 'Inventory & Performance' :
-               'Global Market Pricing Index'}
+              {activeTab === 'products' ? 'WooCommerce Products' : 'WooCommerce Store Overview'}
             </h1>
-            <p className="dashboard-subtitle">Automated Multi-Channel Insights Engine</p>
+            <p className="dashboard-subtitle">WooCommerce Analytics Dashboard</p>
           </div>
           <div className="header-actions">
-            <div className="date-filters">
-              <div className="date-input-group">
-                <Calendar size={14} />
-                <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-              </div>
-              <span>→</span>
-              <div className="date-input-group">
-                <Calendar size={14} />
-                <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-              </div>
-            </div>
             <button className="refresh-btn" onClick={fetchAnalytics}>Refresh</button>
           </div>
         </header>
 
-        {activeTab === 'overview' && (
+        {/* {activeTab === 'overview' && (
           <>
-            {/* KPI Row */}
+            {/* KPI Row * /}
             <div className="kpi-grid">
               <div className="kpi-card glass-panel">
                 <div className="kpi-header">
@@ -219,7 +213,7 @@ function App() {
               </div>
             </div>
 
-            {/* Charts Section */}
+            {/* Charts Section * /}
             <div className="charts-layout">
               <div className="chart-container glass-panel lg-span">
                 <h3 className="chart-title">Revenue & Ad Spend Trend</h3>
@@ -258,7 +252,7 @@ function App() {
             </div>
 
             </>
-          )}
+          )} */}
 
         {/* {activeTab === 'google' && (
           <div className="animate-slide-up">
@@ -266,8 +260,49 @@ function App() {
           </div>
         )} */}
 
+        {activeTab === 'products' && (
+          <div className="table-container glass-panel animate-slide-up">
+            <div className="table-header-flex">
+              <h3 className="chart-title">Current Inventory</h3>
+              <div className="legend-pills">
+                <span className="legend-item"><span className="status-dot"></span> {products.length} Products</span>
+              </div>
+            </div>
+            <table className="dashboard-table">
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th>Vendor</th>
+                  <th>Type</th>
+                  <th>Price</th>
+                  <th>Cost</th>
+                  <th>Stock</th>
+                </tr>
+              </thead>
+              <tbody>
+                {products.length > 0 ? products.map((p) => (
+                  <tr key={p.id}>
+                    <td className="font-bold">{p.title}</td>
+                    <td>{p.vendor}</td>
+                    <td>{p.product_type}</td>
+                    <td className="text-accent">{formatCurrency(p.selling_price)}</td>
+                    <td>{formatCurrency(p.cost_price)}</td>
+                    <td className={p.stock < 10 ? 'text-danger' : ''}>{p.stock}</td>
+                  </tr>
+                )) : (
+                  <tr>
+                    <td colSpan="6" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                      No products found.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
         {/* Tab-specific Tables */}
-        {activeTab === 'overview' ? (
+        {/* {activeTab === 'overview' ? (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
             <div className="table-container glass-panel">
               <div className="table-header-flex">
@@ -405,10 +440,10 @@ function App() {
               </tbody>
             </table>
           </div>
-        )}
+        )} */}
 
         {/* Modal for Comparison */}
-        {comparisonModal.open && (
+        {/* {comparisonModal.open && (
           <div className="modal-overlay" onClick={() => setComparisonModal({ open: false, data: null })}>
             <div className="modal-content glass-panel" onClick={e => e.stopPropagation()}>
               <div className="modal-header">
@@ -509,7 +544,7 @@ function App() {
                         ...(modalFilter === 'all' || modalFilter === 'during' ? (comparisonModal.data.raw_data.during || []).map(d => ({ ...d, period: 'During' })) : [])
                       ]}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#2a2e3f" vertical={false} />
-                        <XAxis dataKey="date" stroke="#6b7280" fontSize={10} tickLine={false} />
+                        <XAxis dataKey="date" stroke="#6b7280" fontSize= {10} tickLine={false} />
                         <YAxis stroke="#6b7280" fontSize={10} tickLine={false} />
                         <Tooltip 
                           contentStyle={{ backgroundColor: '#1a1c24', border: '1px solid #3b3f4e' }}
@@ -542,7 +577,7 @@ function App() {
               )}
             </div>
           </div>
-        )}
+        )} */}
       </main>
     </div>
   );
