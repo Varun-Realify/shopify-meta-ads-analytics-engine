@@ -15,7 +15,11 @@ def get_dashboard_chart(
     """
     try:
         # Re-use the existing analytics function to fetch data directly
-        analytics_data = get_analytics_overview(start_date, end_date)
+        # Since get_analytics_overview is async, we need to handle it or use service directly
+        # For simplicity in this chart tool, we'll try to await it if needed, 
+        # but better to call the service.
+        import asyncio
+        analytics_data = asyncio.run(get_analytics_overview(start_date, end_date))
         
         # Generate the PNG image output
         image_bytes = chart_service.generate_dashboard(analytics_data)

@@ -9,7 +9,8 @@ logger = logging.getLogger(__name__)
 class LocalWPService:
     def __init__(self):
         # LocalWP often needs index.php if pretty permalinks are disabled
-        self.base_url = f"{Config.LOCALWP_URL.rstrip('/')}/index.php/wp-json/wc/v3"
+        url = Config.LOCALWP_URL or ""
+        self.base_url = f"{url.rstrip('/')}/index.php/wp-json/wc/v3"
         self.consumer_key = Config.LOCALWP_CONSUMER_KEY
         self.consumer_secret = Config.LOCALWP_CONSUMER_SECRET
         self.live_username = Config.LOCALWP_LIVE_USERNAME
