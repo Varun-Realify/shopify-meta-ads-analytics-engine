@@ -13,5 +13,7 @@ def get_shop_data(shop: str):
 
     return {
         "shop": data.shop_domain,
-        "token": data.access_token
+        "token": data.access_token,
+        "api_secret": data.api_secret,
+        "platform": data.platform or 'shopify'
     }

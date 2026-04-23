@@ -7,9 +7,16 @@ from models.schemas import (
     CampaignMetrics, AnalyticsResponse, OverviewStats,
     ProductSalesSummary, TopAction, AnalyticsRequest
 )
-from services import shopify_service, meta_service, analytics_service
+from services import shopify_service, woocommerce_service, meta_service, analytics_service
+from services.shop_context import get_shop_data
 
 router = APIRouter()
+
+def get_platform_service(shop: str):
+    ctx = get_shop_data(shop)
+    if ctx.get("platform") == "woocommerce":
+        return woocommerce_service
+    return shopify_service
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -45,30 +52,33 @@ def test_connections():
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# SHOPIFY — PRODUCTS
+# PRODUCTS
 # ═══════════════════════════════════════════════════════════════════════
 
-@router.get("/shopify/products", tags=["Shopify"])
-def get_products(shop: str):
+@router.get("/{platform}/products", tags=["Platform"])
+def get_products(platform: str, shop: str):
     try:
-        products = shopify_service.get_all_products(shop)
+        service = get_platform_service(shop)
+        products = service.get_all_products(shop)
         return {"count": len(products), "products": products}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# SHOPIFY — ORDERS
+# ORDERS
 # ═══════════════════════════════════════════════════════════════════════
 
-@router.get("/shopify/orders", tags=["Shopify"])
+@router.get("/{platform}/orders", tags=["Platform"])
 def get_orders(
+    platform: str,
     shop: str,
     start_date: date = date.today() - timedelta(days=30),
     end_date: date = date.today()
 ):
     try:
-        orders = shopify_service.get_orders(shop, start_date, end_date)
+        service = get_platform_service(shop)
+        orders = service.get_orders(shop, start_date, end_date)
 
         result = []
         for o in orders:
@@ -98,17 +108,19 @@ def get_orders(
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# SHOPIFY — SALES
+# SALES
 # ═══════════════════════════════════════════════════════════════════════
 
-@router.get("/shopify/sales", tags=["Shopify"])
+@router.get("/{platform}/sales", tags=["Platform"])
 def get_sales_summary(
+    platform: str,
     shop: str,
     start_date: date = date.today() - timedelta(days=30),
     end_date: date = date.today()
 ):
     try:
-        sales = shopify_service.get_sales_by_product(shop, start_date, end_date)
+        service = get_platform_service(shop)
+        sales = service.get_sales_by_product(shop, start_date, end_date)
 
         return {
             "period": f"{start_date} → {end_date}",
@@ -124,8 +136,8 @@ def get_sales_summary(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/shopify/shop-profile", tags=["Shopify"])
-def get_shop_profile(shop: str):
+@router.get("/{platform}/shop-profile", tags=["Platform"])
+def get_shop_profile(platform: str, shop: str):
     from database.db import SessionLocal
     from models.shop_model import Shop
     
@@ -145,38 +157,42 @@ def get_shop_profile(shop: str):
         db.close()
 
 
-@router.get("/shopify/sales-intelligence", tags=["Shopify"])
-def get_sales_intelligence(shop: str):
+@router.get("/{platform}/sales-intelligence", tags=["Platform"])
+def get_sales_intelligence(platform: str, shop: str):
     try:
-        summary = shopify_service.get_intelligence_summary(shop)
+        service = get_platform_service(shop)
+        summary = service.get_intelligence_summary(shop)
         return summary
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/shopify/top-products", tags=["Shopify"])
-def get_top_products(shop: str, limit: int = 5):
+@router.get("/{platform}/top-products", tags=["Platform"])
+def get_top_products(platform: str, shop: str, limit: int = 5):
     try:
-        products = shopify_service.get_top_performing_products(shop, limit)
+        service = get_platform_service(shop)
+        products = service.get_top_performing_products(shop, limit)
         return products
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 # ═══════════════════════════════════════════════════════════════════════
-@router.get("/shopify/margin-intelligence", tags=["Shopify"])
-def get_margin_intel(shop: str):
+@router.get("/{platform}/margin-intelligence", tags=["Platform"])
+def get_margin_intel(platform: str, shop: str):
     try:
-        data = shopify_service.get_margin_intelligence(shop)
+        service = get_platform_service(shop)
+        data = service.get_margin_intelligence(shop)
         return data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/shopify/inventory-intelligence", tags=["Shopify"])
-def get_inventory_intel(shop: str):
+@router.get("/{platform}/inventory-intelligence", tags=["Platform"])
+def get_inventory_intel(platform: str, shop: str):
     try:
-        data = shopify_service.get_inventory_intelligence(shop)
+        service = get_platform_service(shop)
+        data = service.get_inventory_intelligence(shop)
         return data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -199,14 +215,16 @@ def get_campaigns():
 # ANALYTICS
 # ═══════════════════════════════════════════════════════════════════════
 
-@router.get("/analytics", tags=["Analytics"])
+@router.get("/{platform}/analytics", tags=["Platform"])
 def get_analytics(
+    platform: str,
     shop: str,
     start_date: date = date.today() - timedelta(days=30),
     end_date: date = date.today()
 ):
     try:
-        sales_data = shopify_service.get_sales_by_product(shop, start_date, end_date)
+        service = get_platform_service(shop)
+        sales_data = service.get_sales_by_product(shop, start_date, end_date)
 
         total_revenue = sum(s["revenue"] for s in sales_data.values())
         total_units = sum(s["units_sold"] for s in sales_data.values())
@@ -234,15 +252,17 @@ def get_analytics(
 # ANALYTICS OVERVIEW (MAIN API)
 # ═══════════════════════════════════════════════════════════════════════
 
-@router.get("/analytics/overview", tags=["Analytics"])
+@router.get("/{platform}/analytics/overview", tags=["Platform"])
 def get_analytics_overview(
+    platform: str,
     shop: str,
     start_date: date = date.today() - timedelta(days=90),
     end_date: date = date.today()
 ):
     try:
-        products = shopify_service.get_all_products(shop)
-        sales = shopify_service.get_sales_by_product(shop, start_date, end_date)
+        service = get_platform_service(shop)
+        products = service.get_all_products(shop)
+        sales = service.get_sales_by_product(shop, start_date, end_date)
         campaigns = meta_service.get_all_campaigns()
 
         total_revenue = sum(s["revenue"] for s in sales.values())

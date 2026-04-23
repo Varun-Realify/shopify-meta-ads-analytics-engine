@@ -1,174 +1,172 @@
-from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import RedirectResponse
 import os
 import requests
-import hashlib
-import hmac
-from urllib.parse import quote
-from dotenv import load_dotenv
-
+import logging
+import urllib.parse
+import uuid
+import time
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import RedirectResponse
+from sqlalchemy.orm import Session
 from database.db import SessionLocal
 from models.shop_model import Shop
+from dotenv import load_dotenv
 
 load_dotenv()
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
+# ═══════════════════════════════════════════════════════════════════════
+# SHOPIFY AUTH
+# ═══════════════════════════════════════════════════════════════════════
 SHOPIFY_API_KEY = os.getenv("SHOPIFY_API_KEY")
 SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET")
-REDIRECT_URI = os.getenv("SHOPIFY_REDIRECT_URI")
+SHOPIFY_REDIRECT_URI = os.getenv("SHOPIFY_REDIRECT_URI")
+SHOPIFY_SCOPES = "read_products,read_orders,read_inventory"
 
-print("🔥 ENV REDIRECT:", REDIRECT_URI)
-print("KEY:", SHOPIFY_API_KEY)
-print("SECRET:", SHOPIFY_API_SECRET)
-
-# 🔹 STEP 1: Redirect to Shopify
 @router.get("/auth/shopify")
-def auth_shopify(shop: str):
-
-    # Clean shop domain
-    shop = shop.replace("https://", "").replace("http://", "").strip("/")
-
-    # Build params dictionary for clean encoding
-    params = {
-        "client_id": SHOPIFY_API_KEY,
-        "scope": "read_products,read_orders,read_customers,read_reports,read_inventory",
-        "redirect_uri": REDIRECT_URI,
-        "state": "123456789"
-    }
+async def auth_shopify(shop: str):
+    if not shop:
+        raise HTTPException(status_code=400, detail="Missing shop parameter")
     
-    import urllib.parse
-    query_string = urllib.parse.urlencode(params)
-    
-    install_url = f"https://{shop}/admin/oauth/authorize?{query_string}"
+    auth_url = (
+        f"https://{shop}/admin/oauth/authorize?"
+        f"client_id={SHOPIFY_API_KEY}&"
+        f"scope={SHOPIFY_SCOPES}&"
+        f"redirect_uri={SHOPIFY_REDIRECT_URI}&"
+        f"state=nonce"
+    )
+    return RedirectResponse(url=auth_url)
 
-    print("\n" + "="*50)
-    print("🚀 GENERATED INSTALL URL:")
-    print(install_url)
-    print("="*50 + "\n")
-
-    return RedirectResponse(install_url)
-
-
-# 🔹 STEP 2: Callback
 @router.get("/auth/shopify/callback")
-def shopify_callback(
-    shop: str, 
-    code: str, 
-    hmac_header: str = Query(None, alias="hmac"), 
-    host: str = Query(None),
-    timestamp: str = Query(None),
-    state: str = Query(None)
-):
-    # 1. Verify HMAC
-    params = {"shop": shop, "code": code, "timestamp": timestamp}
-    if host:
-        params["host"] = host
-        
-    # Sort keys alphabetically
-    sorted_params = "&".join(f"{k}={v}" for k, v in sorted(params.items()))
-    
-    computed_hmac = hmac.new(
-        SHOPIFY_API_SECRET.encode(),
-        sorted_params.encode(),
-        hashlib.sha256
-    ).hexdigest()
-
-    if hmac_header != computed_hmac:
-        print(f"❌ HMAC mismatch! Got {hmac_header}, computed {computed_hmac}")
-        # Shopify doc: "The hmac parameter must be compared to the computed hmac of the query string"
-        # pass # keeping it passive for now to avoid blocking testing
-
+async def auth_shopify_callback(shop: str, code: str):
     token_url = f"https://{shop}/admin/oauth/access_token"
-
-    # ✅ Exchange code for token
-    # Shopify requires redirect_uri in the POST body if it was used in authorize
     payload = {
         "client_id": SHOPIFY_API_KEY,
         "client_secret": SHOPIFY_API_SECRET,
-        "code": code,
-        "redirect_uri": REDIRECT_URI
+        "code": code
     }
     
-    print(f"🚀 EXCHANGING CODE FOR TOKEN... (Shop: {shop})")
-    print(f"📦 CODE: {code}")
-    print(f"🔗 CALLBACK URL: {REDIRECT_URI}")
-    
-    # Use data= (form-encoded) which is the most compatible with OAuth2
-    response = requests.post(
-        token_url,
-        data=payload
-    )
-
-    print("🔥 TOKEN RESPONSE STATUS:", response.status_code)
-    
+    response = requests.post(token_url, json=payload)
     if response.status_code != 200:
-        print("❌ TOKEN ERROR:", response.text)
-        return {"error": "Failed to retrieve access token", "details": response.text}
-
-    data = response.json()
-    access_token = data.get("access_token")
-    print("🔥 ACCESS TOKEN:", access_token)
-
-    if not access_token:
-        return {"error": "No access token received"}
-
-    # ✅ NEW: Fetch Shop Details
-    shop_info_url = f"https://{shop}/admin/api/2024-01/shop.json"
-    shop_info_response = requests.get(
-        shop_info_url,
-        headers={"X-Shopify-Access-Token": access_token}
-    )
+        raise HTTPException(status_code=400, detail="Failed to retrieve access token")
     
-    shop_name = shop
-    email = None
-    currency = None
-    myshopify_domain = shop
-
-    if shop_info_response.status_code == 200:
-        shop_data = shop_info_response.json().get("shop", {})
-        shop_name = shop_data.get("name", shop)
-        email = shop_data.get("email")
-        currency = shop_data.get("currency")
-        myshopify_domain = shop_data.get("myshopify_domain", shop)
-        print(f"📦 SHOP INFO FETCHED: {shop_name} ({email})")
-
-    # Save in DB
+    access_token = response.json().get("access_token")
+    
     db = SessionLocal()
     try:
-        # ✅ FIXED: Models uses 'shop_domain', not 'shop_name'
-        existing = db.query(Shop).filter(Shop.shop_domain == shop).first()
-
-        if existing:
-            existing.access_token = access_token
-            existing.shop_name = shop_name
-            existing.email = email
-            existing.currency = currency
-            existing.myshopify_domain = myshopify_domain
+        existing_shop = db.query(Shop).filter(Shop.shop_domain == shop).first()
+        if existing_shop:
+            existing_shop.access_token = access_token
+            existing_shop.platform = "shopify"
         else:
             new_shop = Shop(
-                shop_domain=shop,
-                access_token=access_token,
-                shop_name=shop_name,
-                email=email,
-                currency=currency,
-                myshopify_domain=myshopify_domain
+                shop_domain=shop, 
+                access_token=access_token, 
+                platform="shopify",
+                shop_name=shop.split('.')[0]
             )
             db.add(new_shop)
+        db.commit()
+    finally:
+        db.close()
+    
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+    return RedirectResponse(url=f"{frontend_url}/sales?shop={shop}&status=connected&platform=shopify")
 
+
+# ═══════════════════════════════════════════════════════════════════════
+# WOOCOMMERCE AUTH
+# ═══════════════════════════════════════════════════════════════════════
+
+@router.get("/auth/woocommerce")
+def auth_woocommerce(shop_url: str):
+    """
+    Redirects user to WooCommerce for authorization
+    """
+    shop_url = shop_url.strip("/")
+    if not shop_url.startswith("http"):
+        shop_url = f"https://{shop_url}"
+
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
+    backend_url = os.getenv("BACKEND_URL", "http://localhost:8000").rstrip("/")
+
+    # Standard Auth Endpoint params
+    shop_domain = shop_url.replace('https://', '').replace('http://', '').strip("/")
+    callback_url = f"{backend_url}/api/v1/auth/woocommerce/callback/"
+
+    params = {
+        "app_name": "Realify Analytics",
+        "scope": "read_write",
+        "user_id": shop_domain, # Using domain as user_id to identify the shop back
+        "return_url": f"{frontend_url}/sales?shop={shop_domain}&status=connected&platform=woocommerce",
+        "callback_url": callback_url
+    }
+    
+    auth_url = f"{shop_url}/wc-auth/v1/authorize/?{urllib.parse.urlencode(params)}"
+    print(f"\n🚀 INITIATING AUTO-AUTH FOR: {shop_domain}")
+    return RedirectResponse(url=auth_url)
+
+
+@router.api_route("/auth/woocommerce/callback/", methods=["GET", "POST"])
+@router.api_route("/auth/woocommerce/callback", methods=["GET", "POST"])
+async def woocommerce_callback(request: Request):
+    """
+    Handles WooCommerce key delivery with maximum robustness
+    """
+    print("\n" + "📥" * 20)
+    print(f"CALLBACK RECEIVED FROM: {request.client.host}")
+    
+    if request.method == "GET":
+        return {"status": "ok", "message": "Callback active"}
+
+    data = {}
+    try:
+        data = await request.json()
+    except:
+        try:
+            form_data = await request.form()
+            data = dict(form_data)
+        except:
+            print("❌ Could not parse callback data")
+
+    print(f"DATA: {data}")
+
+    consumer_key = data.get("consumer_key")
+    consumer_secret = data.get("consumer_secret")
+    # Identify shop from store_url OR user_id (where we stored the domain)
+    shop_domain = data.get("store_url", data.get("user_id"))
+    
+    if not all([consumer_key, consumer_secret, shop_domain]):
+        print("❌ Missing required fields in callback")
+        return {"status": "error", "message": "Missing credentials"}
+
+    shop_domain = shop_domain.replace("https://", "").replace("http://", "").strip("/")
+    print(f"🔑 Keys received for: {shop_domain}")
+
+    db = SessionLocal()
+    try:
+        existing = db.query(Shop).filter(Shop.shop_domain == shop_domain).first()
+        if existing:
+            existing.access_token = consumer_key
+            existing.api_secret = consumer_secret
+            existing.platform = "woocommerce"
+            print(f"✅ UPDATED KEYS FOR: {shop_domain}")
+        else:
+            new_shop = Shop(
+                shop_domain=shop_domain,
+                access_token=consumer_key,
+                api_secret=consumer_secret,
+                platform="woocommerce",
+                shop_name=shop_domain
+            )
+            db.add(new_shop)
+            print(f"✅ SAVED NEW KEYS FOR: {shop_domain}")
         db.commit()
     except Exception as e:
         db.rollback()
-        print(f"❌ DATABASE ERROR: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        print(f"❌ DB ERROR: {str(e)}")
     finally:
         db.close()
 
-    # ✅ REDIRECT BACK TO FRONTEND
-    # Dynamically get the frontend URL from environment
-    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
-    frontend_redirect_url = f"{frontend_url}/sales?shop={shop}&status=connected"
-    
-    print(f"✅ SUCCESS! Redirecting to: {frontend_redirect_url}")
-    
-    return RedirectResponse(url=frontend_redirect_url)
+    return {"status": "success"}
