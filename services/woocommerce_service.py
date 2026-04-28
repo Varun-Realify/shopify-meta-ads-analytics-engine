@@ -19,7 +19,7 @@ class WooCommerceService:
                     f"{self.base_url}/{endpoint}",
                     params=params,
                     auth=self.auth,
-                    timeout=30.0
+                    timeout=10.0  # fail fast — 10s is enough for a healthy WooCommerce site
                 )
                 response.raise_for_status()
                 return response.json()

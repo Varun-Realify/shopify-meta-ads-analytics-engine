@@ -9,6 +9,8 @@ from models.analytics_models import (
     AnalyticsResponse, OverviewStats, ProductSalesSummary, TopAction
 )
 from services import shopify_service, meta_service, analytics_service, woocommerce_service
+from services.woocommerce_service import woocommerce_service
+from services.plaid_service import plaid_service
 
 router = APIRouter(tags=["Analytics"])
 
