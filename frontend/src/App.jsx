@@ -249,7 +249,7 @@ function App() {
                activeTab === 'plaid' ? 'Bank Transactions & Expenses' : 
                'Market Intel Dashboard'}
             </h1>
-            <p className="dashboard-subtitle">Automated Multi-Channel Insights Engine</p>
+            <p className="dashboard-subtitle">WooCommerce Analytics Dashboard</p>
           </div>
           <div className="header-actions">
             {/* Date range used to filter WooCommerce orders and Plaid transactions */}
@@ -549,7 +549,7 @@ function App() {
               );
             })()}
           </div>
-        )}
+        )} */}
 
         {/* [COMMENTED OUT — campaign comparison modal for Meta ads incrementality analysis] */}
         {/* {comparisonModal.open && (
@@ -558,6 +558,7 @@ function App() {
               ... modal with before/during/after filters and BarChart ...
             </div>
           </div>
+        )} */}
         )} */}
       </main>
     </div>

@@ -2,9 +2,8 @@ from fastapi import APIRouter, HTTPException
 from datetime import date, timedelta
 from typing import List
 import asyncio
+import traceback
 
-from models.shopify_models import OrderModel, OrderItem
-from models.meta_models import CampaignMetrics
 from models.analytics_models import (
     AnalyticsResponse, OverviewStats, ProductSalesSummary, TopAction
 )
@@ -222,266 +221,43 @@ async def get_analytics_overview(
     start_date: date = date.today() - timedelta(days=90),
     end_date:   date = date.today()
 ):
-    """
-    Full analytics pipeline:
-    - Pulls Shopify products + orders
-    - Pulls WooCommerce products + orders
-    - Pulls Meta campaigns + insights
-    - Computes all KPIs per campaign
-    - Returns complete performance overview
-    """
     try:
-        # Fetch base data concurrently
-        products_task = shopify_service.get_all_products()
-        shopify_sales_task = shopify_service.get_sales_by_product(start_date, end_date)
         woo_sales_task = woocommerce_service.get_sales_by_product(start_date, end_date)
-        campaigns_task = meta_service.get_all_campaigns()
-        
-        products, all_shopify_period_sales, all_woo_period_sales, campaigns = await asyncio.gather(
-            products_task, shopify_sales_task, woo_sales_task, campaigns_task
-        )
-        
-        product_map  = {p["id"]: p for p in products}
-
+        products = await woocommerce_service.get_all_products()
+        all_woo_period_sales = await woo_sales_task
+        product_map = {p['id']: p for p in products}
         avg_cost = 0.0
-        avg_sell = 0.0
         if product_map:
-            costs = [p["cost_price"]    for p in product_map.values() if p["cost_price"] > 0]
-            sells = [p["selling_price"] for p in product_map.values() if p["selling_price"] > 0]
+            costs = [p.get('cost_price', 0) for p in product_map.values() if p.get('cost_price', 0) > 0]
             avg_cost = sum(costs) / len(costs) if costs else 0
-            avg_sell = sum(sells) / len(sells) if sells else 0
-
-        campaign_results = []
-        
-        total_units   = sum(s["units_sold"] for s in all_shopify_period_sales.values()) + \
-                     sum(s.get("units_sold", 0) for s in all_woo_period_sales.values())
-        total_revenue = sum(s["revenue"]    for s in all_shopify_period_sales.values()) + \
-                     sum(s.get("revenue", 0) for s in all_woo_period_sales.values())
-        
-        # Insight fetching
-        insight_tasks = []
-        for c in campaigns:
-            cs = date.fromisoformat(c["start_time"]) if c["start_time"] else start_date
-            ce = date.fromisoformat(c["stop_time"])  if c["stop_time"]  else end_date
-            cs = max(cs, start_date)
-            ce = min(ce, end_date)
-            insight_tasks.append(meta_service.get_campaign_insights(c["id"], cs, ce))
-            
-        insights_results = await asyncio.gather(*insight_tasks)
-        
-        for c, insights in zip(campaigns, insights_results):
-            ad_spend    = insights.get("spend", c.get("total_budget", 0))
-            impressions = insights.get("impressions", 0)
-            clicks      = insights.get("clicks", 0)
-            conversions = insights.get("conversions", 0)
-            meta_rev    = insights.get("revenue", 0) # Changed from purchase_revenue to revenue as per meta_service
-
-            revenue       = meta_rev if meta_rev > 0 else total_revenue
-
-            if "Royal Enfield" in c["name"]:
-                revenue = 6051.0
-
-            profit        = analytics_service.calculate_profit(revenue, total_units, avg_cost, ad_spend)
-            profit_margin = analytics_service.calculate_profit_margin(profit, revenue)
-            roas          = analytics_service.calculate_roas(revenue, ad_spend)
-            ctr           = analytics_service.calculate_ctr(clicks, impressions)
-            cpa           = analytics_service.calculate_cpa(ad_spend, conversions)
-            breakeven     = analytics_service.calculate_breakeven_units(ad_spend, avg_sell, avg_cost)
-            
-            cogs          = round(total_units * avg_cost, 2)
-            gross_profit  = round(revenue - cogs, 2)
-
-            # Period comparison
-            period_data   = {"before": {"avg_daily_units": 0, "total_revenue": 0},
-                             "during": {"avg_daily_units": 0, "total_revenue": 0}}
-            matched_product = {"title": "Unknown", "match_type": "none", "product_id": None}
-
-            if product_map:
-                matched_product = analytics_service.find_matching_product(
-                    c["name"], list(product_map.values()), all_period_sales
-                )
-                pid = matched_product["product_id"]
-                if pid:
-                    ts  = shopify_service.get_daily_sales_timeseries(
-                        pid,
-                        cs - timedelta(days=30),
-                        ce + timedelta(days=30)
-                    )
-                    if ts:
-                        period_data = analytics_service.get_period_sales(ts, cs, ce)
-
-            before_avg    = period_data["before"]["avg_daily_units"]
-            during_avg    = period_data["during"]["avg_daily_units"]
-            sales_lift    = analytics_service.calculate_sales_lift(before_avg, during_avg)
-            duration_days = max((ce - cs).days, 1)
-            true_roas     = analytics_service.calculate_true_roas(
-                before_avg * avg_sell, during_avg * avg_sell, duration_days, ad_spend
-            )
-
-            if roas >= 3:   status = "🚀 SCALE"
-            elif roas >= 2: status = "✅ GOOD"
-            elif roas >= 1: status = "⚠️ MARGINAL"
-            else:           status = "🔴 STOP"
-
-            metrics = {
-                "roas": roas, "profit": profit, "profit_margin": profit_margin,
-                "sales_lift": sales_lift, "ctr": ctr, "cpa": cpa,
-                "true_roas": true_roas, "ad_spend": ad_spend,
-                "selling_price": avg_sell, "cost_price": avg_cost,
-            }
-            rec = analytics_service.generate_recommendation(metrics)
-
-            campaign_results.append({
-                "campaign_id":               c["id"],
-                "campaign_name":             c["name"],
-                "platform":                  c.get("objective", "Meta"),
-                "status":                    status,
-                "ad_spend":                  ad_spend,
-                "revenue":                   revenue,
-                "cogs":                      cogs,
-                "gross_profit":              gross_profit,
-                "profit":                    profit,
-                "profit_margin":             profit_margin,
-                "roas":                      roas,
-                "true_roas":                 true_roas,
-                "ctr":                       ctr,
-                "cpa":                       cpa,
-                "impressions":               impressions,
-                "clicks":                    clicks,
-                "conversions":               conversions,
-                "units_sold":                total_units,
-                "breakeven_units":           breakeven,
-                "sales_lift":                sales_lift,
-                "recommendation_level":      rec["level"],
-                "recommendation_headline":   rec["headline"],
-                "recommendation_detail":     rec["detail"],
-                "recommendation_action":     rec["action"],
-                "recommendation_warnings":   rec["warnings"],
-                "matched_product":           matched_product["title"],
-                "match_type":                matched_product["match_type"],
-            })
-            all_recs.append({"campaign_name": c["name"], "rec": rec})
-
-        # Product ranking
-        product_ranking = []
-        avg_ad = sum(c["ad_spend"] for c in campaign_results) / max(len(campaign_results), 1)
-        for i, (pid, s) in enumerate(
-            sorted(sales.items(), key=lambda x: x[1]["revenue"], reverse=True), 1
-        ):
-            prod       = product_map.get(pid, {})
-            cost       = prod.get("cost_price", 0)
-            units      = s["units_sold"]
-            rev        = s["revenue"]
-            net_profit = analytics_service.calculate_profit(rev, units, cost, avg_ad)
-            margin     = analytics_service.calculate_profit_margin(net_profit, rev)
-            product_ranking.append({
-                "product_id": pid,
-                "title":      s["title"],
-                "units_sold": units,
-                "revenue":    rev,
-                "ad_cost":    round(avg_ad, 2),
-                "net_profit": net_profit,
-                "margin":     margin,
-                "rank":       i,
-            })
-
-        # Top 3 actions
-        sorted_recs  = sorted(all_recs, key=lambda x: x["rec"]["priority_score"], reverse=True)
-        top_actions  = [
-            {
-                "priority":         i + 1,
-                "campaign_name":    r["campaign_name"],
-                "level":            r["rec"]["level"],
-                "action":           r["rec"]["action"],
-                "potential_impact": r["rec"]["priority_score"],
-            }
-            for i, r in enumerate(sorted_recs[:3])
-        ]
-
-        total_revenue  = sum(c["revenue"]  for c in campaign_results)
-        total_spend    = sum(c["ad_spend"] for c in campaign_results)
-        total_profit   = sum(c["profit"]   for c in campaign_results)
-        blended_roas   = analytics_service.calculate_roas(total_revenue, total_spend)
-        total_orders   = sum(s["order_count"] for s in sales.values())
-
-        raw_orders = shopify_service.get_orders(start_date, end_date)
-        mapped_orders = []
-        for o in raw_orders:
-            mapped_items = []
-            for li in o.get("line_items", []):
-                pid = str(li.get("product_id", ""))
-                prod = product_map.get(pid, {})
-                cost = prod.get("cost_price", avg_cost)
-                mapped_items.append({
-                    "product_title": li.get("title", "Unknown"),
-                    "quantity": li.get("quantity", 0),
-                    "price": float(li.get("price", 0)),
-                    "cost": cost
-                })
-            mapped_orders.append({"items": mapped_items})
-        
-        overview_cogs = analytics_service.total_cogs(mapped_orders)
-        overview_cac  = analytics_service.calculate_cac(total_spend, len(raw_orders))
-        top_orders    = analytics_service.get_top_products(mapped_orders)[:5]
-
-        return {
-            "overview": {
-                "store":          str(c.get("name", "")) if campaigns else "",
-                "start_date":     str(start_date),
-                "end_date":       str(end_date),
-                "total_revenue":  total_revenue,
-                "total_ad_spend": total_spend,
-                "total_profit":   total_profit,
-                "blended_roas":   blended_roas,
-                "campaign_count": len(campaigns),
-                "product_count":  len(products),
-                "order_count":    total_orders,
-                "total_cogs":     overview_cogs,
-                "cac":            overview_cac,
-            },
-            "campaigns":        campaign_results,
-            "product_ranking":  product_ranking,
-            "top_actions":      top_actions,
-            "top_orders":       top_orders,
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/analytics/before-after/{product_id}")
-def get_before_after_comparison(
-    product_id: str,
-    campaign_start: date = date.today() - timedelta(days=30),
-    campaign_end:   date = date.today(),
-):
-    """Compare sales before, during, and after an ad campaign for a product."""
-    try:
-        window     = 30
-        wide_start = campaign_start - timedelta(days=window)
-        wide_end   = campaign_end   + timedelta(days=window)
-        ts         = shopify_service.get_daily_sales_timeseries(product_id, wide_start, wide_end)
-        periods    = analytics_service.get_period_sales(ts, campaign_start, campaign_end, window)
-
-        before = periods["before"]
-        during = periods["during"]
-        after  = periods["after"]
-
-        return {
-            "product_id":        product_id,
-            "campaign_start":    str(campaign_start),
-            "campaign_end":      str(campaign_end),
-            "before":            before,
-            "during":            during,
-            "after":             after,
-            "sales_lift_during": analytics_service.calculate_sales_lift(
-                before["avg_daily_units"], during["avg_daily_units"]
+        total_units = sum(s.get('units_sold', 0) for s in all_woo_period_sales.values())
+        total_revenue = sum(s.get('revenue', 0) for s in all_woo_period_sales.values())
+        def safe_profit(s):
+            pid = s.get('product_id')
+            prod = product_map.get(pid, {})
+            cost = prod.get('cost_price', avg_cost)
+            return analytics_service.calculate_profit(s.get('revenue', 0), s.get('units_sold', 0), cost, 0)
+        total_profit = sum(safe_profit(s) for s in all_woo_period_sales.values())
+        resp = AnalyticsResponse(
+            overview=OverviewStats(
+                store='WooCommerce',
+                start_date=start_date,
+                end_date=end_date,
+                total_revenue=round(total_revenue, 2),
+                total_ad_spend=0.0,
+                total_profit=round(total_profit, 2),
+                blended_roas=0.0,
+                campaign_count=0,
+                product_count=len(products),
+                order_count=total_units
             ),
-            "sales_lift_after":  analytics_service.calculate_sales_lift(
-                before["avg_daily_units"], after["avg_daily_units"]
-            ),
-        }
+            campaigns=[],
+            product_ranking=[],
+            top_actions=[]
+        )
+        return resp
     except Exception as e:
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -9,11 +9,16 @@ logger = logging.getLogger(__name__)
 
 class WooCommerceService:
     def __init__(self):
-        self.base_url = f"{Config.WOO_URL.rstrip('/')}/wp-json/wc/v3"
+        url = Config.WOO_URL or ""
+        self.base_url = f"{url.rstrip('/')}/wp-json/wc/v3"
         self.auth = (Config.WOO_CONSUMER_KEY, Config.WOO_CONSUMER_SECRET)
 
     async def _safe_get(self, endpoint: str, params: Dict[str, Any] = None) -> Any:
-        async with httpx.AsyncClient() as client:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/json"
+        }
+        async with httpx.AsyncClient(headers=headers, follow_redirects=True) as client:
             try:
                 response = await client.get(
                     f"{self.base_url}/{endpoint}",
@@ -21,8 +26,13 @@ class WooCommerceService:
                     auth=self.auth,
                     timeout=10.0  # fail fast — 10s is enough for a healthy WooCommerce site
                 )
+                logger.debug(f"WooCommerce Response from {response.url}: {response.text[:200]}")
                 response.raise_for_status()
-                return response.json()
+                try:
+                    return response.json()
+                except Exception as json_err:
+                    logger.error(f"Failed to parse WooCommerce JSON: {json_err}. Content: {response.text[:500]}")
+                    raise Exception(f"Invalid JSON response from WooCommerce: {response.text[:100]}")
             except httpx.HTTPStatusError as e:
                 logger.error(f"WooCommerce API error: {e.response.status_code} - {e.response.text}")
                 raise Exception(f"WooCommerce API error: {e.response.status_code}")

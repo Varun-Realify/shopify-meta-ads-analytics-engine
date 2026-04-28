@@ -9,25 +9,15 @@ from routers.charts import router as charts_router
 # from routers.merchant_router import router as merchant_router
 
 app = FastAPI(
-    title       = "Shopify × Meta Ads Analytics API",
+    title       = "WooCommerce Analytics API",
     description = """
-## 📊 Shopify × Meta Ads Analytics Engine
+## 📊 WooCommerce Analytics Engine
 
-Analyze your Shopify and WooCommerce store performance against Meta ad campaigns.
+Analyze your WooCommerce store performance.
 
 ### Features
-- ✅ **Real eCommerce Data** — Shopify & WooCommerce Products, Orders, Revenue
-- ✅ **Real Meta Ads Data** — Campaigns, Spend, Impressions, CTR
-- ✅ **Before vs After Analysis** — Sales impact of ad campaigns
-- ✅ **Profit & ROAS Calculations** — True ROI per campaign
-- ✅ **AI Recommendations** — STOP / OPTIMIZE / SCALE decisions
-
-### Quick Start
-1. `GET /connections` — Verify all APIs are connected
-2. `GET /shopify/products` or `GET /woocommerce/products` — See your products
-3. `GET /shopify/orders` or `GET /woocommerce/orders` — See your orders
-4. `GET /meta/campaigns` — See your ad campaigns
-5. `GET /analytics/overview` — Full performance report
+- ✅ **Real eCommerce Data** — WooCommerce Products, Orders, Revenue
+- ✅ **Analytics Overview** — Performance report
     """,
     version     = "1.0.0",
     docs_url    = "/docs",
@@ -43,8 +33,8 @@ app.add_middleware(
 )
 
 app.include_router(health.router, prefix="/api/v1")
-app.include_router(shopify.router, prefix="/api/v1")
-app.include_router(meta.router, prefix="/api/v1")
+# app.include_router(shopify.router, prefix="/api/v1")
+# app.include_router(meta.router, prefix="/api/v1")
 app.include_router(woocommerce.router, prefix="/api/v1")
 app.include_router(localwp.router, prefix="/api/v1")
 app.include_router(plaid.router, prefix="/api/v1")
@@ -56,21 +46,14 @@ app.include_router(charts_router, prefix="/api/v1/charts")
 @app.get("/", tags=["Root"])
 def root():
     return {
-        "message":  "🚀 Shopify × Meta Ads Analytics API",
+        "message":  "🚀 WooCommerce Analytics API",
         "version":  "1.0.0",
         "docs":     "/docs",
         "redoc":    "/redoc",
         "endpoints": {
             "health":           "/api/v1/health",
-            # "connections":      "/api/v1/connections",
-            "products":         "/api/v1/shopify/products",
-            "orders":           "/api/v1/shopify/orders",
-            "sales":            "/api/v1/shopify/sales",
-            "campaigns":        "/api/v1/meta/campaigns",
-            "analytics":        "/api/v1/analytics/overview",
-            "competitor_track": "/api/v1/competitors/track",
-            "before_after":     "/api/v1/analytics/before-after/{product_id}",
-            "custom_metrics":   "/api/v1/analytics/metrics",
+            "woocommerce_products": "/api/v1/woocommerce/products",
+            "analytics_overview":   "/api/v1/analytics/overview",
             "dashboard_image":  "/api/v1/charts/dashboard.png",
             "woo_products": "/api/v1/woocommerce/products",
             "woo_orders": "/api/v1/woocommerce/orders",

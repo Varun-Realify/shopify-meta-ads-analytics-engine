@@ -8,14 +8,14 @@ import os
 
 logger  = logging.getLogger(__name__)
 BASE    = "https://graph.facebook.com/v18.0"
-TOKEN   = Config.META_ACCESS_TOKEN
-AD_ACC  = Config.META_AD_ACCOUNT_ID
-
 
 async def safe_get(url, params=None, retries=3) -> dict:
+    TOKEN   = Config.META_ACCESS_TOKEN
+    AD_ACC  = Config.META_AD_ACCOUNT_ID
+    
     if params is None:
         params = {}
-    params["access_token"] = TOKEN
+    params["access_token"] = TOKEN or ""
 
     async with httpx.AsyncClient() as client:
         for attempt in range(retries):
@@ -34,6 +34,7 @@ async def safe_get(url, params=None, retries=3) -> dict:
 
 
 async def test_connection() -> dict:
+    AD_ACC  = Config.META_AD_ACCOUNT_ID
     try:
         data = await safe_get(f"{BASE}/me", params={"fields": "id,name"})
         return {
@@ -47,6 +48,7 @@ async def test_connection() -> dict:
 
 
 async def get_all_campaigns() -> list:
+    AD_ACC  = Config.META_AD_ACCOUNT_ID
     logger.info("Fetching Meta campaigns...")
     data      = await safe_get(
         f"{BASE}/{AD_ACC}/campaigns",
@@ -119,6 +121,7 @@ async def create_catalog_product(name: str, description: str, link: str, image_u
     Requires 'catalog_id' and 'ads_management' permissions.
     """
     CATALOG_ID = os.getenv("META_CATALOG_ID")
+    TOKEN = Config.META_ACCESS_TOKEN
     if not CATALOG_ID:
         return {"error": "META_CATALOG_ID not set in .env"}
 
@@ -154,6 +157,8 @@ async def create_test_campaign(name: str):
     Experimental: Create a draft campaign for verification.
     Requires 'ads_management' permission.
     """
+    AD_ACC = Config.META_AD_ACCOUNT_ID
+    TOKEN = Config.META_ACCESS_TOKEN
     url = f"{BASE}/{AD_ACC}/campaigns"
     payload = {
         "name": name,
@@ -170,10 +175,12 @@ def get_meta_conversions_realtime(ad_id: str):
     """
     Checks specific Ad conversion count in real-time.
     """
+    TOKEN = Config.META_ACCESS_TOKEN
     url = f"{BASE}/{ad_id}/insights"
     params = {
         "fields": "actions,action_values,spend",
-        "date_preset": "today"
+        "date_preset": "today",
+        "access_token": TOKEN
     }
     return safe_get(url, params=params)
 
