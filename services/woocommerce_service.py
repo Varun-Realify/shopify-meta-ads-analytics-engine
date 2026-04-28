@@ -24,7 +24,7 @@ class WooCommerceService:
                     f"{self.base_url}/{endpoint}",
                     params=params,
                     auth=self.auth,
-                    timeout=30.0
+                    timeout=10.0  # fail fast — 10s is enough for a healthy WooCommerce site
                 )
                 logger.debug(f"WooCommerce Response from {response.url}: {response.text[:200]}")
                 response.raise_for_status()

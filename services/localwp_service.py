@@ -8,18 +8,19 @@ logger = logging.getLogger(__name__)
 
 class LocalWPService:
     def __init__(self):
-        # LocalWP often needs index.php if pretty permalinks are disabled
+        # Guard against missing LOCALWP_URL — service starts in disabled state
         url = Config.LOCALWP_URL or ""
+        # LocalWP often needs index.php if pretty permalinks are disabled
         self.base_url = f"{url.rstrip('/')}/index.php/wp-json/wc/v3"
-        self.consumer_key = Config.LOCALWP_CONSUMER_KEY
-        self.consumer_secret = Config.LOCALWP_CONSUMER_SECRET
+        self.consumer_key = Config.LOCALWP_CONSUMER_KEY or ""
+        self.consumer_secret = Config.LOCALWP_CONSUMER_SECRET or ""
         self.live_username = Config.LOCALWP_LIVE_USERNAME
         self.live_password = Config.LOCALWP_LIVE_PASSWORD
 
     async def _safe_get(self, endpoint: str, params: Dict[str, Any] = None) -> Any:
         if params is None:
             params = {}
-        
+
         # When using Live Link Basic Auth, WooCommerce keys MUST be in query params
         params.update({
             "consumer_key": self.consumer_key,
@@ -30,14 +31,14 @@ class LocalWPService:
             try:
                 # Basic Auth for the Live Link (site-level protection)
                 auth = httpx.BasicAuth(self.live_username, self.live_password) if self.live_username else None
-                
+
                 response = await client.get(
                     f"{self.base_url}/{endpoint}",
                     params=params,
                     auth=auth,
                     timeout=30.0
                 )
-                
+
                 # If 404, maybe retry without index.php (optional, but focusing on what worked in diagnosis)
                 if response.status_code == 404 and "/index.php/" in self.base_url:
                     alt_url = self.base_url.replace("/index.php/", "/")
