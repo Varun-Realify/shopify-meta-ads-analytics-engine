@@ -19,7 +19,7 @@ class PlaidService:
         self.secret = Config.PLAID_SECRET
         self.env = Config.PLAID_ENV or "sandbox"
         self.base_url = PLAID_ENV_URLS.get(self.env, PLAID_ENV_URLS["sandbox"])
-
+    
     def _get_auth(self) -> str:
         """Generate Basic auth header from client_id and secret"""
         credentials = f"{self.client_id}:{self.secret}"

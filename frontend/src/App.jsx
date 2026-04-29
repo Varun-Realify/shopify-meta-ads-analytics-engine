@@ -1,5 +1,5 @@
 // Only WooCommerce-related imports are active; others commented out until needed
-import { Activity, AlertCircle, Calendar, CreditCard, ShoppingCart } from 'lucide-react';
+import { Activity, AlertCircle, Calendar, CreditCard, ShoppingCart, DollarSign, Lock } from 'lucide-react';
 // import { Activity, AlertCircle, ArrowDownRight, ArrowUpRight, BarChart3, Calendar, DollarSign, LayoutDashboard, ShieldCheck, ShoppingBag, ShoppingCart, TrendingUp } from 'lucide-react';
 import { useState } from 'react';
 // import { useEffect, useState } from 'react'; // useEffect re-enable when analytics auto-fetch is needed
@@ -31,6 +31,38 @@ function App() {
   loading: false,
   error: null,
   connected: false });
+  
+  // Stripe: stores checkout form state
+  const [stripeForm, setStripeForm] = useState({ productName: '', amount: '', loading: false, error: null });
+
+  const handleStripeCheckout = async () => {
+    setStripeForm(prev => ({ ...prev, loading: true, error: null }));
+    try {
+      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const response = await fetch(`${baseUrl}/api/v1/stripe/checkout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          product_name: stripeForm.productName,
+          amount: (stripeForm.amount || 0) * 100
+        })
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Stripe API error: ${response.status} - ${errorText}`);
+      }
+      
+      const result = await response.json();
+      if (result.checkout_url) {
+        window.location.href = result.checkout_url;
+      } else {
+        throw new Error('No checkout URL returned');
+      }
+    } catch (err) {
+      setStripeForm(prev => ({ ...prev, loading: false, error: err.message }));
+    }
+  };
   
 
   // [COMMENTED OUT — tooltip header used only in Campaigns table]
@@ -298,6 +330,14 @@ function App() {
             <Activity size={20} /> <span>Accounting</span>
           </div>
 
+          {/* Stripe tab */}
+          <div
+            className={`nav-item ${activeTab === 'stripe' ? 'active' : ''}`}
+            onClick={() => { setActiveTab('stripe'); }}
+          >
+            <DollarSign size={20} /> <span>Payment</span>
+          </div>
+
           {/* <div className={`nav-item ${activeTab === 'google' ? 'active' : ''}`} onClick={() => setActiveTab('google')}><ShieldCheck size={20} /> <span>Google Intel</span></div> */}
         </nav>
       </aside>
@@ -310,12 +350,14 @@ function App() {
               {activeTab === 'woocommerce' ? 'WooCommerce Store Overview' : 
                activeTab === 'plaid' ? 'Bank Transactions & Expenses' : 
                activeTab === 'quickbooks' ? 'QuickBooks Accounting' : 
+               activeTab === 'stripe' ? 'Secure Checkout' : 
                'Market Intel Dashboard'}
             </h1>
             <p className="dashboard-subtitle">
               {activeTab === 'woocommerce' && 'WooCommerce Analytics Dashboard'}
               {activeTab === 'plaid' && 'Bank Transactions & Expenses'}
               {activeTab === 'quickbooks' && 'QuickBooks Profit & Loss'}
+              {activeTab === 'stripe' && 'Stripe Payments Checkout'}
               {!activeTab && 'Market Intel Dashboard'}
             </p>
           </div>
@@ -686,6 +728,109 @@ function App() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* ── Stripe Checkout Tab Content ──────────────────────────────────────── */}
+        {activeTab === 'stripe' && (
+          <div className="animate-slide-up" style={{ display: 'flex', justifyContent: 'center', padding: '4rem 1rem' }}>
+            
+            <div className="glass-card" style={{ width: '100%', maxWidth: '480px', margin: '0 auto', position: 'relative', overflow: 'hidden', padding: '2.5rem', borderRadius: '32px', background: 'rgba(17, 25, 40, 0.6)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255, 255, 255, 0.08)', boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.37)' }}>
+              
+              {/* Decorative Glow */}
+              <div style={{ position: 'absolute', top: '-100px', right: '-100px', width: '200px', height: '200px', background: 'rgba(139, 92, 246, 0.15)', filter: 'blur(80px)', borderRadius: '50%' }}></div>
+              
+              <div style={{ textAlign: 'center', marginBottom: '2.5rem', position: 'relative', zIndex: 10 }}>
+                <span style={{ display: 'inline-block', padding: '0.35rem 1rem', borderRadius: '999px', background: 'rgba(160, 120, 255, 0.1)', color: '#a078ff', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.15em', border: '1px solid rgba(160, 120, 255, 0.2)', marginBottom: '1.25rem', fontWeight: 600 }}>
+                  Payment Portal
+                </span>
+                <h2 style={{ fontSize: '1.85rem', color: 'white', fontWeight: 600, margin: '0 0 0.75rem 0', letterSpacing: '-0.01em' }}>Complete your purchase</h2>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem', margin: '0 auto', maxWidth: '300px', lineHeight: 1.5 }}>
+                  Secure transaction powered by Stripe. Your data is encrypted and never stored.
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', position: 'relative', zIndex: 10 }}>
+                <div className="stripe-input-group">
+                  <label className="stripe-label" style={{ marginLeft: '0.25rem', color: 'var(--text-secondary)' }}>Product Name</label>
+                  <div className="stripe-input-wrapper">
+                    <input 
+                      type="text" 
+                      className="stripe-input"
+                      value={stripeForm.productName}
+                      onChange={(e) => setStripeForm({...stripeForm, productName: e.target.value})}
+                      placeholder="e.g. Premium Design System Bundle"
+                      style={{ background: 'rgba(255, 255, 255, 0.05)', borderRadius: '16px', padding: '1.15rem 1rem', border: '1px solid rgba(255, 255, 255, 0.1)', transition: 'all 0.2s', width: '100%', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                </div>
+                
+                <div className="stripe-input-group">
+                  <label className="stripe-label" style={{ marginLeft: '0.25rem', color: 'var(--text-secondary)' }}>Amount (in INR)</label>
+                  <div className="stripe-input-wrapper">
+                    <input 
+                      type="number" 
+                      className="stripe-input"
+                      value={stripeForm.amount}
+                      onChange={(e) => setStripeForm({...stripeForm, amount: e.target.value === '' ? '' : parseInt(e.target.value) || 0})}
+                      placeholder="Enter Amount"
+                      style={{ background: 'rgba(255, 255, 255, 0.05)', borderRadius: '16px', padding: '1.15rem 1rem', border: '1px solid rgba(255, 255, 255, 0.1)', transition: 'all 0.2s', width: '100%', boxSizing: 'border-box', fontSize: '1.25rem' }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ paddingTop: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <div style={{ height: '1px', background: 'rgba(255, 255, 255, 0.05)', width: '100%' }}></div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                    <span>Transaction Fee</span>
+                    <span>₹0.00</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: 'white', fontSize: '1.25rem', fontWeight: 600 }}>
+                    <span>Total</span>
+                    <span style={{ color: '#a078ff' }}>{formatCurrency(stripeForm.amount || 0)}</span>
+                  </div>
+                </div>
+
+                <button 
+                  onClick={handleStripeCheckout} 
+                  disabled={stripeForm.loading}
+                  style={{ 
+                    padding: '1.15rem', 
+                    borderRadius: '16px', 
+                    fontSize: '1.2rem', 
+                    fontWeight: 600,
+                    marginTop: '1.5rem', 
+                    background: 'linear-gradient(135deg, #a078ff 0%, #6d3bd7 100%)',
+                    color: 'white',
+                    border: 'none',
+                    cursor: stripeForm.loading ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '0.5rem',
+                    boxShadow: '0 4px 15px rgba(109, 59, 215, 0.3)',
+                    transition: 'transform 0.15s ease'
+                  }}
+                  onMouseOver={(e) => !stripeForm.loading && (e.currentTarget.style.transform = 'scale(0.98)')}
+                  onMouseOut={(e) => !stripeForm.loading && (e.currentTarget.style.transform = 'scale(1)')}
+                >
+                  {stripeForm.loading ? 'Processing...' : 'Pay'}
+                </button>
+              </div>
+
+              {stripeForm.error && (
+                <div style={{ marginTop: '1.5rem', padding: '1rem', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '12px', color: '#fca5a5', fontSize: '0.85rem', textAlign: 'center', position: 'relative', zIndex: 10 }}>
+                  {stripeForm.error}
+                </div>
+              )}
+              
+              <div style={{ marginTop: '2rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', color: 'var(--text-muted)', fontSize: '0.8rem', position: 'relative', zIndex: 10 }}>
+                <Lock size={14} />
+                <span>Fully encrypted 256-bit SSL connection</span>
+              </div>
+
+            </div>
+
           </div>
         )}
 
