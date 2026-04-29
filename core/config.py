@@ -31,6 +31,9 @@ class Config:
     LOCALWP_LIVE_USERNAME    = os.getenv("LOCALWP_LIVE_USERNAME")
     LOCALWP_LIVE_PASSWORD    = os.getenv("LOCALWP_LIVE_PASSWORD")
 
+    # STRIPE
+    STRIPE_SECRET           = os.getenv("STRIPE_SECRET")
+
     # PLAID (Sandbox)
     PLAID_CLIENT_ID          = os.getenv("PLAID_CLIENT_ID")
     PLAID_SECRET            = os.getenv("PLAID_SECRET")
