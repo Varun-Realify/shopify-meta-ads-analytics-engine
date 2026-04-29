@@ -25,6 +25,12 @@ function App() {
 
   // Plaid: stores fetched transactions and their fetch state
   const [plaidData, setPlaidData] = useState({ transactions: [], totalExpenses: 0, loading: false, error: null, linked: false });
+
+  const [qbData, setQbData] = useState({
+  summary: null,
+  loading: false,
+  error: null,
+  connected: false });
   
 
   // [COMMENTED OUT — tooltip header used only in Campaigns table]
@@ -125,6 +131,55 @@ function App() {
       setWooData(prev => ({ ...prev, loading: false, error: msg }));
     }
   };
+
+  const fetchQuickBooks = async () => {
+  setQbData(prev => ({ ...prev, loading: true, error: null }));
+
+  try {
+    const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
+    const res = await fetch(`${baseUrl}/api/v1/quickbooks/profit-loss`);
+
+    if (!res.ok) throw new Error("QuickBooks API failed");
+
+    const data = await res.json();
+
+    const rows = data?.data?.Rows?.Row || [];
+
+    let income = 0;
+    let expenses = 0;
+    let net = 0;
+
+    rows.forEach(section => {
+      const group = section.group;
+
+      if (section.Summary?.ColData?.[1]?.value) {
+        const value = parseFloat(section.Summary.ColData[1].value);
+
+        if (group === "Income") income = value;
+        if (group === "Expenses") expenses = value;
+        if (group === "NetIncome") net = value;
+      }
+    });
+
+    setQbData({
+      summary: { income, expenses, net },
+      loading: false,
+      error: null,
+      connected: true
+    });
+
+  } catch (err) {
+    setQbData(prev => ({
+      ...prev,
+      loading: false,
+      error: err.message,
+      connected: false
+    }));
+  }
+};
+
+
 
   // [COMMENTED OUT — fetches Shopify + Meta analytics overview; caused the infinite loading on mount]
   // const fetchAnalytics = async () => {
@@ -236,6 +291,13 @@ function App() {
             <CreditCard size={20} /> <span>Expenses</span>
           </div>
 
+          {/* QuickBooks tab — fetches accounting data */}
+          <div
+            className={`nav-item ${activeTab === 'quickbooks' ? 'active' : ''}`} 
+            onClick={() => { setActiveTab('quickbooks'); fetchQuickBooks(); }}>
+            <Activity size={20} /> <span>Accounting</span>
+          </div>
+
           {/* <div className={`nav-item ${activeTab === 'google' ? 'active' : ''}`} onClick={() => setActiveTab('google')}><ShieldCheck size={20} /> <span>Google Intel</span></div> */}
         </nav>
       </aside>
@@ -247,9 +309,15 @@ function App() {
             <h1 className="dashboard-title">
               {activeTab === 'woocommerce' ? 'WooCommerce Store Overview' : 
                activeTab === 'plaid' ? 'Bank Transactions & Expenses' : 
+               activeTab === 'quickbooks' ? 'QuickBooks Accounting' : 
                'Market Intel Dashboard'}
             </h1>
-            <p className="dashboard-subtitle">WooCommerce Analytics Dashboard</p>
+            <p className="dashboard-subtitle">
+              {activeTab === 'woocommerce' && 'WooCommerce Analytics Dashboard'}
+              {activeTab === 'plaid' && 'Bank Transactions & Expenses'}
+              {activeTab === 'quickbooks' && 'QuickBooks Profit & Loss'}
+              {!activeTab && 'Market Intel Dashboard'}
+            </p>
           </div>
           <div className="header-actions">
             {/* Date range used to filter WooCommerce orders and Plaid transactions */}
@@ -265,7 +333,12 @@ function App() {
               </div>
             </div>
             {/* Refresh re-fetches data based on active tab */}
-            <button className="refresh-btn" onClick={activeTab === 'woocommerce' ? fetchWooCommerce : fetchPlaid}>
+            <button className="refresh-btn" onClick={
+              activeTab === 'woocommerce' ? fetchWooCommerce : 
+              activeTab === 'plaid' ? fetchPlaid : 
+              activeTab === 'quickbooks' ? fetchQuickBooks : 
+              fetchWooCommerce
+            }>
               Refresh
             </button>
           </div>
@@ -549,7 +622,72 @@ function App() {
               );
             })()}
           </div>
-        )} */}
+        )}
+
+        {/* ── QuickBooks/Accounting Tab Content ──────────────────────────────────────── */}
+        {activeTab === 'quickbooks' && (
+          <div className="animate-slide-up">
+
+            {/* Spinner shown while data is being fetched */}
+            {qbData.loading && (
+              <div className="woo-center-state glass-panel">
+                <div className="woo-spinner-ring"></div>
+                <p className="woo-state-label">Fetching QuickBooks accounting data...</p>
+              </div>
+            )}
+
+            {/* Error state shown if the API call fails */}
+            {qbData.error && !qbData.loading && (
+              <div className="woo-center-state glass-panel woo-error-state">
+                <AlertCircle size={44} color="var(--danger)" />
+                <p className="woo-state-title">Connection Failed</p>
+                <p className="woo-state-label">{qbData.error}</p>
+                <button className="woo-load-btn" onClick={fetchQuickBooks}>Try Again</button>
+              </div>
+            )}
+
+            {/* Empty / initial state — shown before the user fetches for the first time */}
+            {!qbData.loading && !qbData.error && !qbData.summary && (
+              <div className="woo-center-state glass-panel">
+                <div className="woo-store-icon"><Activity size={36} /></div>
+                <p className="woo-state-title">QuickBooks Accounting</p>
+                <p className="woo-state-label">Click below to pull profit & loss data from your QuickBooks account.</p>
+                <button className="woo-load-btn" onClick={fetchQuickBooks}>
+                  <Activity size={16} style={{ marginRight: 8 }} />
+                  Load Accounting Data
+                </button>
+              </div>
+            )}
+
+            {/* ── KPI summary row, shown once data is loaded ───────── */}
+            {!qbData.loading && !qbData.error && qbData.summary && (
+              <div className="woo-kpi-grid">
+                <div className="woo-kpi-card glass-panel">
+                  <span className="woo-kpi-label">Total Income</span>
+                  <span className="woo-kpi-value woo-kpi-highlight">{formatCurrency(qbData.summary.income)}</span>
+                  <span className="woo-kpi-sub">Revenue</span>
+                </div>
+                <div className="woo-kpi-card glass-panel">
+                  <span className="woo-kpi-label">Total Expenses</span>
+                  <span className="woo-kpi-value" style={{ color: 'var(--danger)' }}>{formatCurrency(qbData.summary.expenses)}</span>
+                  <span className="woo-kpi-sub">Costs</span>
+                </div>
+                <div className="woo-kpi-card glass-panel">
+                  <span className="woo-kpi-label">Net Profit</span>
+                  <span className="woo-kpi-value" style={{ color: qbData.summary.net >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                    {formatCurrency(qbData.summary.net)}
+                  </span>
+                  <span className="woo-kpi-sub">Bottom Line</span>
+                </div>
+                <div className="woo-kpi-card glass-panel">
+                  <span className="woo-kpi-label">Status</span>
+                  <span className="woo-kpi-value" style={{ color: 'var(--success)' }}>Connected</span>
+                  <span className="woo-kpi-sub">QuickBooks Online</span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* [COMMENTED OUT — campaign comparison modal for Meta ads incrementality analysis] */}
         {/* {comparisonModal.open && (
@@ -558,7 +696,6 @@ function App() {
               ... modal with before/during/after filters and BarChart ...
             </div>
           </div>
-        )} */}
         )} */}
       </main>
     </div>
