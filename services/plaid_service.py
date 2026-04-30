@@ -49,19 +49,14 @@ class PlaidService:
                 raise
 
     async def test_connection(self) -> Dict[str, Any]:
-        """Test Plaid connection with sandbox credentials"""
+        """Test Plaid connection by creating a link token"""
         try:
-            # Use /item/create to test credentials
-            response = await self._post("/item/create", {
-                "client_id": self.client_id,
-                "secret": self.secret,
-                "country_codes": ["US"],
-                "products": ["transactions"]
-            })
+            # Using link/token/create instead of /item/create which doesn't exist
+            response = await self.create_link_token("health_check_user")
             return {
                 "connected": True,
                 "environment": self.env,
-                "item_id": response.get("item", {}).get("item_id"),
+                "link_token": response.get("link_token"),
                 "request_id": response.get("request_id")
             }
         except Exception as e:

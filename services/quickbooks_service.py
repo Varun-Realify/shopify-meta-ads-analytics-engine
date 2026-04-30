@@ -74,14 +74,21 @@ class QuickBooksService:
 
             return response.json()
 
-    async def get_profit_loss(self, access_token, realm_id):
+    async def get_profit_loss(self, access_token, realm_id, start_date=None, end_date=None):
+        params = {}
+        if start_date:
+            params["start_date"] = start_date
+        if end_date:
+            params["end_date"] = end_date
+
         async with httpx.AsyncClient() as client:
             response = await client.get(
                 f"{QB_API_BASE}/v3/company/{realm_id}/reports/ProfitAndLoss",
                 headers={
                     "Authorization": f"Bearer {access_token}",
                     "Accept": "application/json"
-                }
+                },
+                params=params
             )
 
             if response.status_code != 200:

@@ -45,3 +45,6 @@ class Config:
     # ANALYSIS
     ANALYSIS_WINDOW_DAYS = 30
     TARGET_PROFIT_MARGIN = 20.0
+
+    # SHIPBOB
+    SHIPBOB_API_TOKEN       = os.getenv("SHIPBOB_API_TOKEN")
