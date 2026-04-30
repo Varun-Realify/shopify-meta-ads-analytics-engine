@@ -1,3 +1,4 @@
+import os
 from fastapi import APIRouter, HTTPException, Request
 from services.quickbooks_service import quickbooks_service
 
@@ -37,32 +38,41 @@ async def callback(request: Request):
 
 
 async def ensure_token():
-    if not qb_tokens["access_token"]:
+    # ✅ Check .env first, then memory
+    access_token = os.getenv("QB_ACCESS_TOKEN") or qb_tokens["access_token"]
+    refresh_token = os.getenv("QB_REFRESH_TOKEN") or qb_tokens["refresh_token"]
+
+    if not access_token:
         raise HTTPException(status_code=400, detail="QuickBooks not connected")
 
-    # Try API with current token
-    try:
-        return qb_tokens["access_token"]
-    except:
-        # Refresh if needed
-        refreshed = await quickbooks_service.refresh_token(qb_tokens["refresh_token"])
-
-        qb_tokens["access_token"] = refreshed.get("access_token")
-        qb_tokens["refresh_token"] = refreshed.get("refresh_token")
-
-        return qb_tokens["access_token"]
+    return access_token
 
 
 @router.get("/profit-loss")
-async def profit_loss():
-    access_token = await ensure_token()
+async def profit_loss(start_date: str = None, end_date: str = None):
+    # ✅ Read directly from .env for immediate testing
+    access_token = os.getenv("QB_ACCESS_TOKEN")
+    realm_id = os.getenv("QB_REALM_ID")
 
-    data = await quickbooks_service.get_profit_loss(
-        access_token,
-        qb_tokens["realm_id"]
-    )
+    if not access_token or not realm_id:
+        # Fallback to in-memory tokens if not in .env
+        access_token = await ensure_token()
+        realm_id = qb_tokens["realm_id"]
 
-    return {
-        "status": "success",
-        "data": data
-    }
+    if not realm_id:
+        raise HTTPException(status_code=400, detail="QuickBooks Realm ID missing")
+
+    try:
+        data = await quickbooks_service.get_profit_loss(
+            access_token=access_token,
+            realm_id=realm_id,
+            start_date=start_date,
+            end_date=end_date
+        )
+
+        return {
+            "status": "success",
+            "data": data
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
