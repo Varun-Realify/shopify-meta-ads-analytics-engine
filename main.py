@@ -4,7 +4,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import health, shopify, meta, analytics, woocommerce, localwp, plaid, stripe
+from routers import health, shopify, meta, analytics, woocommerce, localwp, plaid, stripe, shipbob
 from routers.charts import router as charts_router
 from routers import quickbooks
 from core.database import connect_to_mongo, close_mongo_connection
@@ -52,6 +52,7 @@ app.include_router(analytics.router, prefix="/api/v1")
 app.include_router(charts_router, prefix="/api/v1/charts")
 app.include_router(quickbooks.router, prefix="/api/v1")
 app.include_router(stripe.router, prefix="/api/v1")
+app.include_router(shipbob.router, prefix="/api/v1")
 # app.include_router(merchant_router, prefix="/api")
 
 
