@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from routers import health, shopify, meta, analytics, woocommerce, localwp, plaid, stripe
 from routers.charts import router as charts_router
 from routers import quickbooks
+from core.database import connect_to_mongo, close_mongo_connection
 # from routers.merchant_router import router as merchant_router
 
 app = FastAPI(
@@ -25,12 +26,20 @@ Analyze your WooCommerce store performance.
     redoc_url   = "/redoc",
 )
 
+@app.on_event("startup")
+async def startup_db_client():
+    await connect_to_mongo()
+
+@app.on_event("shutdown")
+async def shutdown_db_client():
+    await close_mongo_connection()
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins     = ["*"],
     allow_credentials = True,
     allow_methods     = ["*"],
-    allow_headers     = ["*"],
+    allow_headers     = ["*", "ngrok-skip-browser-warning"],
 )
 
 app.include_router(health.router, prefix="/api/v1")

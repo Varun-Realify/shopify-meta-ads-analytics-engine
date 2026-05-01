@@ -1,9 +1,6 @@
 // Only WooCommerce-related imports are active; others commented out until needed
-import { Activity, AlertCircle, Calendar, CreditCard, ShoppingCart, DollarSign, Lock } from 'lucide-react';
-// import { Activity, AlertCircle, ArrowDownRight, ArrowUpRight, BarChart3, Calendar, DollarSign, LayoutDashboard, ShieldCheck, ShoppingBag, ShoppingCart, TrendingUp } from 'lucide-react';
+import { Activity, AlertCircle, Calendar, CreditCard, DollarSign, Lock, ShoppingCart } from 'lucide-react';
 import { useState } from 'react';
-// import { useEffect, useState } from 'react'; // useEffect re-enable when analytics auto-fetch is needed
-// import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell as ReCell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'; // charts used by overview/campaigns tabs
 import './App.css';
 // import GoogleMerchantIntel from './components/GoogleMerchantIntel';
 
@@ -27,13 +24,13 @@ function App() {
   const [plaidData, setPlaidData] = useState({ transactions: [], totalExpenses: 0, loading: false, error: null, linked: false });
 
   const [qbData, setQbData] = useState({
-  summary: null,
-  loading: false,
-  error: null,
-  connected: false });
-  
-  // Stripe: stores checkout form state
-  const [stripeForm, setStripeForm] = useState({ productName: '', amount: '', loading: false, error: null });
+    summary: null,
+    loading: false,
+    error: null,
+    isConnected: false 
+  });
+
+  const [stripeForm, setStripeForm] = useState({ productName: '', amount: 1000, loading: false, error: null });
 
   const handleStripeCheckout = async () => {
     setStripeForm(prev => ({ ...prev, loading: true, error: null }));
@@ -129,6 +126,19 @@ function App() {
     }
   };
 
+  const handleQBLogin = async () => {
+    try {
+      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const res = await fetch(`${baseUrl}/api/v1/quickbooks/auth`);
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+      }
+    } catch (err) {
+      console.error("Failed to get QB auth URL", err);
+    }
+  };
+
   // Fetches WooCommerce products and date-filtered orders from the backend in parallel.
   // Uses AbortController so the UI never hangs — aborts after 15s if the backend is slow.
   const fetchWooCommerce = async () => {
@@ -158,23 +168,30 @@ function App() {
       clearTimeout(timeoutId);
       // AbortError means the 15-second timeout fired — give a clear message
       const msg = err.name === 'AbortError'
-        ? 'Request timed out (15s). Check that your WooCommerce site is reachable and credentials are correct.'
+        ? 'Request timeout. Check WooCommerce site.'
         : err.message;
       setWooData(prev => ({ ...prev, loading: false, error: msg }));
     }
   };
 
   const fetchQuickBooks = async () => {
-  setQbData(prev => ({ ...prev, loading: true, error: null }));
+    setQbData(prev => ({ ...prev, loading: true, error: null }));
 
-  try {
-    const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+    try {
+      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      // Pass dates to QuickBooks as well
+      const res = await fetch(`${baseUrl}/api/v1/quickbooks/profit-loss?start_date=${startDate}&end_date=${endDate}`);
 
-    const res = await fetch(`${baseUrl}/api/v1/quickbooks/profit-loss`);
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        // If not connected, we should offer to connect
+        if (res.status === 400 || res.status === 401) {
+          throw new Error("QB_NOT_CONNECTED");
+        }
+        throw new Error(errorData.detail || "QuickBooks API failed");
+      }
 
-    if (!res.ok) throw new Error("QuickBooks API failed");
-
-    const data = await res.json();
+      const data = await res.json();
 
     const rows = data?.data?.Rows?.Row || [];
 
@@ -198,7 +215,7 @@ function App() {
       summary: { income, expenses, net },
       loading: false,
       error: null,
-      connected: true
+      isConnected: true
     });
 
   } catch (err) {
@@ -206,7 +223,7 @@ function App() {
       ...prev,
       loading: false,
       error: err.message,
-      connected: false
+      isConnected: false
     }));
   }
 };
@@ -670,7 +687,22 @@ function App() {
         {activeTab === 'quickbooks' && (
           <div className="animate-slide-up">
 
-            {/* Spinner shown while data is being fetched */}
+            {/* Step 1: Force Login if isConnected is false (even if tokens exist in .env) */}
+            {!qbData.isConnected && !qbData.loading && (
+              <div className="woo-center-state glass-panel">
+                <div className="woo-store-icon" style={{ background: 'rgba(44, 160, 28, 0.1)' }}>
+                  <Activity size={36} color="#2ca01c" />
+                </div>
+                <p className="woo-state-title">Connect QuickBooks</p>
+                <p className="woo-state-label">To view your Profit & Loss, please authorize your account first.</p>
+                <button className="woo-load-btn" onClick={handleQBLogin} style={{ background: '#2ca01c', padding: '1rem 2.5rem', fontSize: '1.1rem' }}>
+                  <Activity size={18} style={{ marginRight: 10 }} />
+                  Login with QuickBooks
+                </button>
+              </div>
+            )}
+
+            {/* Step 2: Spinner shown while data is being fetched */}
             {qbData.loading && (
               <div className="woo-center-state glass-panel">
                 <div className="woo-spinner-ring"></div>
@@ -678,55 +710,55 @@ function App() {
               </div>
             )}
 
-            {/* Error state shown if the API call fails */}
-            {qbData.error && !qbData.loading && (
+            {/* Error state */}
+            {qbData.error && !qbData.loading && qbData.error !== "QB_NOT_CONNECTED" && (
               <div className="woo-center-state glass-panel woo-error-state">
                 <AlertCircle size={44} color="var(--danger)" />
                 <p className="woo-state-title">Connection Failed</p>
                 <p className="woo-state-label">{qbData.error}</p>
-                <button className="woo-load-btn" onClick={fetchQuickBooks}>Try Again</button>
+                <button className="woo-load-btn" onClick={handleQBLogin}>Re-authenticate</button>
               </div>
             )}
 
-            {/* Empty / initial state — shown before the user fetches for the first time */}
-            {!qbData.loading && !qbData.error && !qbData.summary && (
-              <div className="woo-center-state glass-panel">
-                <div className="woo-store-icon"><Activity size={36} /></div>
-                <p className="woo-state-title">QuickBooks Accounting</p>
-                <p className="woo-state-label">Click below to pull profit & loss data from your QuickBooks account.</p>
-                <button className="woo-load-btn" onClick={fetchQuickBooks}>
-                  <Activity size={16} style={{ marginRight: 8 }} />
-                  Load Accounting Data
-                </button>
-              </div>
-            )}
+            {/* Step 3: Show Data only after successful login/fetch */}
+            {qbData.isConnected && qbData.summary && !qbData.loading && (
+              <>
+                <div className="woo-kpi-grid">
+                  <div className="woo-kpi-card glass-panel">
+                    <span className="woo-kpi-label">Total Income</span>
+                    <span className="woo-kpi-value woo-kpi-highlight">{formatCurrency(qbData.summary.income)}</span>
+                    <span className="woo-kpi-sub">Revenue</span>
+                  </div>
+                  <div className="woo-kpi-card glass-panel">
+                    <span className="woo-kpi-label">Total Expenses</span>
+                    <span className="woo-kpi-value" style={{ color: 'var(--danger)' }}>{formatCurrency(qbData.summary.expenses)}</span>
+                    <span className="woo-kpi-sub">Costs</span>
+                  </div>
+                  <div className="woo-kpi-card glass-panel">
+                    <span className="woo-kpi-label">Net Profit</span>
+                    <span className="woo-kpi-value" style={{ color: qbData.summary.net >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                      {formatCurrency(qbData.summary.net)}
+                    </span>
+                    <span className="woo-kpi-sub">Bottom Line</span>
+                  </div>
+                  <div className="woo-kpi-card glass-panel" onClick={handleQBLogin} style={{ cursor: 'pointer' }}>
+                    <span className="woo-kpi-label">Status</span>
+                    <span className="woo-kpi-value" style={{ color: 'var(--success)' }}>Connected</span>
+                    <span className="woo-kpi-sub">QuickBooks Online (Switch?)</span>
+                  </div>
+                </div>
 
-            {/* ── KPI summary row, shown once data is loaded ───────── */}
-            {!qbData.loading && !qbData.error && qbData.summary && (
-              <div className="woo-kpi-grid">
-                <div className="woo-kpi-card glass-panel">
-                  <span className="woo-kpi-label">Total Income</span>
-                  <span className="woo-kpi-value woo-kpi-highlight">{formatCurrency(qbData.summary.income)}</span>
-                  <span className="woo-kpi-sub">Revenue</span>
+                <div style={{ marginTop: '2rem', textAlign: 'center' }}>
+                  <button className="woo-load-btn" onClick={fetchQuickBooks} style={{ marginRight: '10px' }}>
+                    <Activity size={16} style={{ marginRight: 8 }} />
+                    Refresh Data
+                  </button>
+                  <button className="woo-load-btn" onClick={handleQBLogin} style={{ background: '#2ca01c', opacity: 0.8 }}>
+                    <Activity size={16} style={{ marginRight: 8 }} />
+                    Switch Account
+                  </button>
                 </div>
-                <div className="woo-kpi-card glass-panel">
-                  <span className="woo-kpi-label">Total Expenses</span>
-                  <span className="woo-kpi-value" style={{ color: 'var(--danger)' }}>{formatCurrency(qbData.summary.expenses)}</span>
-                  <span className="woo-kpi-sub">Costs</span>
-                </div>
-                <div className="woo-kpi-card glass-panel">
-                  <span className="woo-kpi-label">Net Profit</span>
-                  <span className="woo-kpi-value" style={{ color: qbData.summary.net >= 0 ? 'var(--success)' : 'var(--danger)' }}>
-                    {formatCurrency(qbData.summary.net)}
-                  </span>
-                  <span className="woo-kpi-sub">Bottom Line</span>
-                </div>
-                <div className="woo-kpi-card glass-panel">
-                  <span className="woo-kpi-label">Status</span>
-                  <span className="woo-kpi-value" style={{ color: 'var(--success)' }}>Connected</span>
-                  <span className="woo-kpi-sub">QuickBooks Online</span>
-                </div>
-              </div>
+              </>
             )}
           </div>
         )}
