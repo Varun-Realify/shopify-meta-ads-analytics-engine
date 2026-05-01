@@ -19,6 +19,10 @@ class Config:
     GOOGLE_MERCHANT_ID   = os.getenv("GOOGLE_MERCHANT_ID")
     GOOGLE_SERVICE_ACCOUNT_JSON_PATH = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON_PATH")
 
+    # MONGODB
+    MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27014")
+    MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "market_intel")
+
     # WOOCOMMERCE (Standard/InstaWP)
     WOO_URL              = os.getenv("WOO_URL")
     WOO_CONSUMER_KEY     = os.getenv("WOO_CONSUMER_KEY")
@@ -46,5 +50,6 @@ class Config:
     ANALYSIS_WINDOW_DAYS = 30
     TARGET_PROFIT_MARGIN = 20.0
 
-    # SHIPBOB
-    SHIPBOB_API_TOKEN       = os.getenv("SHIPBOB_API_TOKEN")
+    # MONGODB
+    MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27014")
+    MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "market_intel")
