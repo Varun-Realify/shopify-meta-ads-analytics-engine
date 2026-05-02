@@ -1,92 +1,89 @@
 import httpx
 import logging
-from typing import Dict, Any
+from datetime import datetime
+from typing import Dict, Any, List
 from core.config import Config
+from core.database import db
 
 logger = logging.getLogger(__name__)
 
 class StripeService:
     def __init__(self):
-        self.secret = Config.STRIPE_SECRET
+        # STRIPE_SECRET and STRIPE_CLIENT_ID must be in your Config class
+        self.secret_key = getattr(Config, "STRIPE_SECRET", None)
+        self.client_id = getattr(Config, "STRIPE_CLIENT_ID", None)
         self.base_url = "https://api.stripe.com/v1"
 
-    async def _post(self, endpoint: str, data: Dict[str, Any] = None) -> Dict[str, Any]:
-        """Make a POST request to Stripe API using form-urlencoded data"""
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.post(
-                    f"{self.base_url}{endpoint}",
-                    data=data,
-                    headers={
-                        "Authorization": f"Bearer {self.secret}"
-                    },
-                    timeout=30.0
-                )
-                response.raise_for_status()
-                return response.json()
-            except httpx.HTTPStatusError as e:
-                logger.error(f"Stripe API error: {e.response.status_code} - {e.response.text}")
-                raise Exception(f"Stripe API error: {e.response.status_code} - {e.response.text}")
-            except Exception as e:
-                logger.error(f"Stripe connection error: {str(e)}")
-                raise
-
-    async def create_checkout_session(
-        self, 
-        product_name: str, 
-        amount: int, 
-        currency: str = "usd", 
-        success_url: str = "http://localhost:8000/success", 
-        cancel_url: str = "http://localhost:8000/cancel"
-    ) -> Dict[str, Any]:
-        """Create a Stripe checkout session"""
-        try:
-            # For Stripe form-urlencoded arrays/dicts, we flatten the keys
-            data = {
-                "payment_method_types[0]": "card",
-                "line_items[0][price_data][currency]": currency,
-                "line_items[0][price_data][product_data][name]": product_name,
-                "line_items[0][price_data][unit_amount]": amount, # Amount in cents
-                "line_items[0][quantity]": 1,
-                "mode": "payment",
-                "success_url": success_url,
-                "cancel_url": cancel_url
-            }
-            response = await self._post("/checkout/sessions", data)
-            return {
-                "checkout_url": response.get("url"),
-                "session_id": response.get("id"),
-                "payment_status": response.get("payment_status")
-            }
-        except Exception as e:
-            logger.error(f"Error creating Stripe checkout session: {e}")
-            raise
-
-    async def get_session_status(self, session_id: str) -> Dict[str, Any]:
-        """Get the status of a checkout session"""
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.get(
-                    f"{self.base_url}/checkout/sessions/{session_id}",
-                    headers={
-                        "Authorization": f"Bearer {self.secret}"
-                    },
-                    timeout=30.0
-                )
-                response.raise_for_status()
-                data = response.json()
-                return {
-                    "id": data.get("id"),
-                    "payment_status": data.get("payment_status"),
-                    "status": data.get("status"),
-                    "customer_email": data.get("customer_details", {}).get("email") if data.get("customer_details") else None
+    async def exchange_token_and_save(self, code: str, internal_user_id: str):
+        """Phase 1: Exchange temporary code for permanent access token"""
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                "https://connect.stripe.com/oauth/token",
+                data={
+                    "client_secret": self.secret_key,
+                    "code": code,
+                    "grant_type": "authorization_code"
                 }
-            except httpx.HTTPStatusError as e:
-                logger.error(f"Stripe API error: {e.response.status_code} - {e.response.text}")
-                raise Exception(f"Stripe API error: {e.response.status_code} - {e.response.text}")
-            except Exception as e:
-                logger.error(f"Stripe connection error: {str(e)}")
-                raise
+            )
+            data = response.json()
+            
+            if response.status_code != 200:
+                # THIS LINE WILL SHOW THE ERROR IN YOUR TERMINAL
+                print(f"STRIPE ERROR: {data}") 
+                raise Exception(data.get("error_description", "Stripe exchange failed"))
 
-# Singleton instance
+            print(f"STRIPE SUCCESS RESPONSE: {data}")
+            seller_data = {
+                "user_id": internal_user_id,
+                "stripe_user_id": data.get("stripe_user_id", "missing_user_id"),
+                "access_token": data.get("access_token", "missing_token"),
+                "connected_at": datetime.utcnow().isoformat(),
+                "stripe_raw_response": data
+            }
+
+            try:
+                await db.db.stripe_sellers.update_one(
+                    {"user_id": internal_user_id},
+                    {"$set": seller_data},
+                    upsert=True
+                )
+                return seller_data
+            except Exception as e:
+                # THIS LINE WILL SHOW IF MONGODB IS BLOCKING YOU
+                print(f"DATABASE ERROR: {e}")
+                raise Exception("Failed to save to MongoDB")
+
+    async def get_seller_payment_data(self, internal_user_id: str) -> List[Dict[str, Any]]:
+        """Phase 2: Use stored token to fetch live payment history[cite: 1]"""
+        # 1. Retrieve token from MongoDB[cite: 1]
+        seller = await db.db.stripe_sellers.find_one({"user_id": internal_user_id})
+        if not seller:
+            raise Exception("Seller not connected to Stripe")
+        
+        # 2. Call Stripe using the seller's specific token[cite: 1]
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            headers = {"Authorization": f"Bearer {seller['access_token']}"}
+            
+            response = await client.get(
+                f"{self.base_url}/charges", 
+                headers=headers,
+                params={"limit": 20} 
+            )
+            
+            if response.status_code != 200:
+                logger.error(f"Stripe History Error: {response.text}")
+                return []
+
+            charges = response.json().get("data", [])
+            
+            # Format data for the professional dashboard[cite: 1]
+            return [{
+                "id": c.get("id"),
+                "amount": c.get("amount") / 100, # Cents to Dollars
+                "currency": c.get("currency", "").upper(),
+                "receipt": c.get("receipt_url"), 
+                "status": c.get("status"),
+                "created": datetime.fromtimestamp(c.get("created")).strftime('%Y-%m-%d %H:%M:%S')
+            } for c in charges]
+
 stripe_service = StripeService()

@@ -1,6 +1,6 @@
 // Only WooCommerce-related imports are active; others commented out until needed
-import { Activity, AlertCircle, Calendar, CreditCard, DollarSign, Lock, ShoppingCart } from 'lucide-react';
-import { useState } from 'react';
+import { Activity, AlertCircle, Calendar, CreditCard, DollarSign, Lock, ShoppingCart, Link } from 'lucide-react';
+import { useState, useEffect } from 'react';
 import './App.css';
 // import GoogleMerchantIntel from './components/GoogleMerchantIntel';
 
@@ -31,6 +31,75 @@ function App() {
   });
 
   const [stripeForm, setStripeForm] = useState({ productName: '', amount: 1000, loading: false, error: null });
+
+  // Stripe Connect state
+  const [stripeConnectData, setStripeConnectData] = useState({ transactions: [], loading: false, error: null, isConnected: false });
+  const [currentUserId, setCurrentUserId] = useState("");
+
+  // Check URL parameters on mount for Stripe Connect success
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('stripe_connected') === 'success') {
+      // Get the ID from the URL or fallback to what we saved in localStorage before redirecting
+      const connectedUserId = params.get('user_id') || localStorage.getItem('stripe_connect_temp_user_id');
+      setCurrentUserId(connectedUserId);
+      setStripeConnectData(prev => ({ ...prev, isConnected: true }));
+      setActiveTab('stripe-connect');
+      // Remove URL parameter without reloading
+      window.history.replaceState({}, document.title, window.location.pathname);
+      // Fetch the data immediately
+      fetchStripeConnect(connectedUserId);
+    }
+  }, []);
+
+  const handleStripeConnectLogin = () => {
+    // Generate a unique user ID behind the scenes so the user doesn't have to type anything
+    const dynamicUserId = "user_" + Math.random().toString(36).substr(2, 9);
+    setCurrentUserId(dynamicUserId);
+    localStorage.setItem('stripe_connect_temp_user_id', dynamicUserId);
+
+    // Generate OAuth URL
+    const client_id = 'ca_UR4O1ElJxeIDF5JX2vNU8U9BkM7ZnIai'; // From backend
+    const redirect_uri = 'http://localhost:8000/api/v1/stripe/callback';
+    const authUrl = `https://connect.stripe.com/oauth/authorize?response_type=code&client_id=${client_id}&scope=read_write&redirect_uri=${redirect_uri}&state=${dynamicUserId}`;
+    window.location.href = authUrl;
+  };
+
+  const fetchStripeConnect = async (userIdToFetch = null) => {
+    const userId = userIdToFetch || currentUserId;
+    if (!userId.trim()) {
+      setStripeConnectData(prev => ({ ...prev, error: "Please enter a User ID", isConnected: false }));
+      return;
+    }
+
+    setStripeConnectData(prev => ({ ...prev, loading: true, error: null }));
+    try {
+      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const res = await fetch(`${baseUrl}/api/v1/stripe/history/${userId}`);
+      
+      if (!res.ok) {
+        if (res.status === 404 || res.status === 400) {
+           throw new Error("STRIPE_NOT_CONNECTED");
+        }
+        throw new Error("Failed to fetch Stripe data");
+      }
+      
+      const data = await res.json();
+      setStripeConnectData({
+        transactions: data.data || [],
+        loading: false,
+        error: null,
+        isConnected: true
+      });
+    } catch (err) {
+      setStripeConnectData(prev => ({
+        ...prev,
+        loading: false,
+        error: err.message,
+        isConnected: false
+      }));
+    }
+  };
 
   const handleStripeCheckout = async () => {
     setStripeForm(prev => ({ ...prev, loading: true, error: null }));
@@ -355,6 +424,14 @@ function App() {
             <DollarSign size={20} /> <span>Payment</span>
           </div>
 
+          {/* Stripe Connect tab */}
+          <div
+            className={`nav-item ${activeTab === 'stripe-connect' ? 'active' : ''}`}
+            onClick={() => { setActiveTab('stripe-connect'); fetchStripeConnect(); }}
+          >
+            <Link size={20} /> <span>Stripe Connect</span>
+          </div>
+
           {/* <div className={`nav-item ${activeTab === 'google' ? 'active' : ''}`} onClick={() => setActiveTab('google')}><ShieldCheck size={20} /> <span>Google Intel</span></div> */}
         </nav>
       </aside>
@@ -375,6 +452,7 @@ function App() {
               {activeTab === 'plaid' && 'Bank Transactions & Expenses'}
               {activeTab === 'quickbooks' && 'QuickBooks Profit & Loss'}
               {activeTab === 'stripe' && 'Stripe Payments Checkout'}
+              {activeTab === 'stripe-connect' && 'Stripe Connected Account Transactions'}
               {!activeTab && 'Market Intel Dashboard'}
             </p>
           </div>
@@ -757,6 +835,113 @@ function App() {
                     <Activity size={16} style={{ marginRight: 8 }} />
                     Switch Account
                   </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ── Stripe Connect Tab Content ──────────────────────────────────────── */}
+        {activeTab === 'stripe-connect' && (
+          <div className="animate-slide-up">
+            {/* Step 1: Force Login if isConnected is false */}
+            {!stripeConnectData.isConnected && !stripeConnectData.loading && (
+              <div className="woo-center-state glass-panel">
+                <div className="woo-store-icon" style={{ background: 'rgba(99, 91, 255, 0.1)' }}>
+                  <Link size={36} color="#635BFF" />
+                </div>
+                <p className="woo-state-title">Connect your Stripe Account</p>
+                <p className="woo-state-label">To view your payment history and receipts, please authorize Stripe Connect.</p>
+                <button className="woo-load-btn" onClick={handleStripeConnectLogin} style={{ background: '#635BFF', padding: '1rem 2.5rem', fontSize: '1.1rem' }}>
+                  <Link size={18} style={{ marginRight: 10 }} />
+                  Connect with Stripe
+                </button>
+              </div>
+            )}
+
+            {/* Step 2: Spinner */}
+            {stripeConnectData.loading && (
+              <div className="woo-center-state glass-panel">
+                <div className="woo-spinner-ring"></div>
+                <p className="woo-state-label">Fetching Stripe transactions...</p>
+              </div>
+            )}
+
+            {/* Error state */}
+            {stripeConnectData.error && !stripeConnectData.loading && stripeConnectData.error !== "STRIPE_NOT_CONNECTED" && (
+              <div className="woo-center-state glass-panel woo-error-state">
+                <AlertCircle size={44} color="var(--danger)" />
+                <p className="woo-state-title">Connection Failed</p>
+                <p className="woo-state-label">{stripeConnectData.error}</p>
+                <button className="woo-load-btn" onClick={handleStripeConnectLogin}>Re-authenticate</button>
+              </div>
+            )}
+
+            {/* Step 3: Show Data only after successful login/fetch */}
+            {stripeConnectData.isConnected && stripeConnectData.transactions && !stripeConnectData.loading && (
+              <>
+                <div className="woo-kpi-grid">
+                  <div className="woo-kpi-card glass-panel">
+                    <span className="woo-kpi-label">Total Transactions</span>
+                    <span className="woo-kpi-value">{stripeConnectData.transactions.length}</span>
+                    <span className="woo-kpi-sub">Total Payments</span>
+                  </div>
+                  <div className="woo-kpi-card glass-panel">
+                    <span className="woo-kpi-label">Status</span>
+                    <span className="woo-kpi-value" style={{ color: 'var(--success)' }}>Connected</span>
+                    <span className="woo-kpi-sub">Stripe Connect</span>
+                  </div>
+                </div>
+
+                <div className="table-container glass-panel" style={{ marginTop: '2rem' }}>
+                  <div className="table-header-flex">
+                    <h3 className="chart-title">
+                      <DollarSign size={16} style={{ display: 'inline', marginRight: 6 }} />
+                      Payment History
+                    </h3>
+                    <button className="refresh-btn" onClick={fetchStripeConnect}>Refresh</button>
+                  </div>
+                  <table className="dashboard-table">
+                    <thead>
+                      <tr>
+                        <th>ID</th>
+                        <th>Amount</th>
+                        <th>Currency</th>
+                        <th>Status</th>
+                        <th>Receipt</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {stripeConnectData.transactions.map((tx) => (
+                        <tr key={tx.id} className="woo-table-row">
+                          <td className="font-bold">{tx.id}</td>
+                          <td className="woo-price-cell">{formatCurrency(tx.amount)}</td>
+                          <td><span className="woo-type-pill">{tx.currency.toUpperCase()}</span></td>
+                          <td>
+                            <span className={`woo-order-status ${tx.status === 'succeeded' ? 'woo-status-completed' : 'woo-status-pending'}`}>
+                              {tx.status}
+                            </span>
+                          </td>
+                          <td>
+                            {tx.receipt ? (
+                              <a href={tx.receipt} target="_blank" rel="noreferrer" style={{ color: '#635BFF', textDecoration: 'none', fontWeight: 500 }}>
+                                View Receipt
+                              </a>
+                            ) : (
+                              <span style={{ color: 'var(--text-muted)' }}>No Receipt</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                      {stripeConnectData.transactions.length === 0 && (
+                        <tr>
+                          <td colSpan="5" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                            No transactions found for this account. Create test transactions in your Stripe Dashboard.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
                 </div>
               </>
             )}

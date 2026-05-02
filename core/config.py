@@ -43,6 +43,9 @@ class Config:
     PLAID_SECRET            = os.getenv("PLAID_SECRET")
     PLAID_ENV               = os.getenv("PLAID_ENV", "sandbox")
 
+    # SHIPBOB
+    SHIPBOB_API_TOKEN       = os.getenv("SHIPBOB_API_TOKEN")
+
     # COMPETITOR CONFIG
     COMPETITOR_URLS      = os.getenv("COMPETITOR_URLS", "").split(",")
 
