@@ -20,6 +20,7 @@ class QuickBooksService:
         self.redirect_uri = os.getenv("QB_REDIRECT_URI")
 
     async def save_tokens(self, user_id: str, realm_id: str, access_token: str, refresh_token: str):
+        from datetime import datetime, timezone
         db = get_database()
         await db.qb_tokens.update_one(
             {"user_id": user_id},
@@ -28,7 +29,7 @@ class QuickBooksService:
                     "realm_id": realm_id,
                     "access_token": access_token,
                     "refresh_token": refresh_token,
-                    "updated_at": httpx.utils.getCurrentTimestamp() if hasattr(httpx.utils, 'getCurrentTimestamp') else None
+                    "updated_at": datetime.now(timezone.utc)
                 }
             },
             upsert=True

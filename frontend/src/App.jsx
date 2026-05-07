@@ -50,6 +50,15 @@ function App() {
       // Fetch the data immediately
       fetchStripeConnect(connectedUserId);
     }
+
+    if (params.get('qb_connected') === 'success') {
+      const qbUserId = params.get('user_id') || localStorage.getItem('qb_temp_user_id');
+      localStorage.setItem('qb_temp_user_id', qbUserId);
+      setQbData(prev => ({ ...prev, isConnected: true }));
+      setActiveTab('quickbooks');
+      window.history.replaceState({}, document.title, window.location.pathname);
+      fetchQuickBooks(qbUserId);
+    }
   }, []);
 
   const handleStripeConnectLogin = () => {
@@ -197,8 +206,11 @@ function App() {
 
   const handleQBLogin = async () => {
     try {
+      const dynamicUserId = "qb_user_" + Math.random().toString(36).substr(2, 9);
+      localStorage.setItem('qb_temp_user_id', dynamicUserId);
+
       const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-      const res = await fetch(`${baseUrl}/api/v1/quickbooks/auth`);
+      const res = await fetch(`${baseUrl}/api/v1/quickbooks/auth?user_id=${dynamicUserId}`);
       const data = await res.json();
       if (data.url) {
         window.location.href = data.url;
@@ -206,6 +218,11 @@ function App() {
     } catch (err) {
       console.error("Failed to get QB auth URL", err);
     }
+  };
+
+  const handleQBDisconnect = () => {
+    localStorage.removeItem('qb_temp_user_id');
+    setQbData({ summary: null, loading: false, error: null, isConnected: false });
   };
 
   // Fetches WooCommerce products and date-filtered orders from the backend in parallel.
@@ -243,13 +260,19 @@ function App() {
     }
   };
 
-  const fetchQuickBooks = async () => {
+  const fetchQuickBooks = async (userIdToFetch = null) => {
+    const userId = userIdToFetch || localStorage.getItem('qb_temp_user_id');
+    if (!userId) {
+      setQbData(prev => ({ ...prev, error: "QB_NOT_CONNECTED", isConnected: false }));
+      return;
+    }
+
     setQbData(prev => ({ ...prev, loading: true, error: null }));
 
     try {
       const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
       // Pass dates to QuickBooks as well
-      const res = await fetch(`${baseUrl}/api/v1/quickbooks/profit-loss?start_date=${startDate}&end_date=${endDate}`);
+      const res = await fetch(`${baseUrl}/api/v1/quickbooks/profit-loss?start_date=${startDate}&end_date=${endDate}&user_id=${userId}`);
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
@@ -831,9 +854,12 @@ function App() {
                     <Activity size={16} style={{ marginRight: 8 }} />
                     Refresh Data
                   </button>
-                  <button className="woo-load-btn" onClick={handleQBLogin} style={{ background: '#2ca01c', opacity: 0.8 }}>
+                  <button className="woo-load-btn" onClick={handleQBLogin} style={{ background: '#2ca01c', opacity: 0.8, marginRight: '10px' }}>
                     <Activity size={16} style={{ marginRight: 8 }} />
                     Switch Account
+                  </button>
+                  <button className="woo-load-btn" onClick={handleQBDisconnect} style={{ background: 'var(--danger)' }}>
+                    Disconnect
                   </button>
                 </div>
               </>
