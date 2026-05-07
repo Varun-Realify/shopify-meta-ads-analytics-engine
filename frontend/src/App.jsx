@@ -905,6 +905,7 @@ function App() {
                     <thead>
                       <tr>
                         <th>ID</th>
+                        <th>Customer</th>
                         <th>Amount</th>
                         <th>Currency</th>
                         <th>Status</th>
@@ -915,6 +916,7 @@ function App() {
                       {stripeConnectData.transactions.map((tx) => (
                         <tr key={tx.id} className="woo-table-row">
                           <td className="font-bold">{tx.id}</td>
+                          <td>{tx.customer_name || 'Unknown'}</td>
                           <td className="woo-price-cell">{formatCurrency(tx.amount)}</td>
                           <td><span className="woo-type-pill">{tx.currency.toUpperCase()}</span></td>
                           <td>
@@ -935,7 +937,7 @@ function App() {
                       ))}
                       {stripeConnectData.transactions.length === 0 && (
                         <tr>
-                          <td colSpan="5" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                          <td colSpan="6" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
                             No transactions found for this account. Create test transactions in your Stripe Dashboard.
                           </td>
                         </tr>

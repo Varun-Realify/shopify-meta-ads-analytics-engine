@@ -9,6 +9,7 @@ class StripeTransaction(BaseModel):
     receipt: Optional[str] = None
     status: str
     created: str
+    customer_name: Optional[str] = None
 
 class StripeHistoryResponse(BaseModel):
     """Structured response for the payment history dashboard."""

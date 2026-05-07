@@ -83,7 +83,8 @@ class StripeService:
                 "currency": c.get("currency", "").upper(),
                 "receipt": c.get("receipt_url"), 
                 "status": c.get("status"),
-                "created": datetime.fromtimestamp(c.get("created")).strftime('%Y-%m-%d %H:%M:%S')
+                "created": datetime.fromtimestamp(c.get("created")).strftime('%Y-%m-%d %H:%M:%S'),
+                "customer_name": c.get("billing_details", {}).get("name") or "Unknown"
             } for c in charges]
 
 stripe_service = StripeService()
