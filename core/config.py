@@ -21,7 +21,7 @@ class Config:
 
     # MONGODB
     MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27014")
-    MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "market_intel")
+    MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "analytics_engine")
 
     # WOOCOMMERCE (Standard/InstaWP)
     WOO_URL              = os.getenv("WOO_URL")
@@ -42,6 +42,12 @@ class Config:
     PLAID_CLIENT_ID          = os.getenv("PLAID_CLIENT_ID")
     PLAID_SECRET            = os.getenv("PLAID_SECRET")
     PLAID_ENV               = os.getenv("PLAID_ENV", "sandbox")
+    PLAID_ENCRYPTION_KEY = os.getenv("PLAID_ENCRYPTION_KEY")
+    PLAID_CLIENT_NAME = os.getenv("PLAID_CLIENT_NAME")
+    PLAID_PRODUCTS = os.getenv("PLAID_PRODUCTS", "transactions").split(",")
+    PLAID_COUNTRY_CODES = os.getenv("PLAID_COUNTRY_CODES", "US").split(",")
+    PLAID_LANGUAGE = os.getenv("PLAID_LANGUAGE", "en")
+    PLAID_ENCRYPTION_KEY = os.getenv("PLAID_ENCRYPTION_KEY")
 
     # SHIPBOB
     SHIPBOB_API_TOKEN       = os.getenv("SHIPBOB_API_TOKEN")
@@ -52,7 +58,3 @@ class Config:
     # ANALYSIS
     ANALYSIS_WINDOW_DAYS = 30
     TARGET_PROFIT_MARGIN = 20.0
-
-    # MONGODB
-    MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27014")
-    MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "market_intel")

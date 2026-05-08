@@ -13,3 +13,5 @@ httpx
 thefuzz
 rapidfuzz
 python-Levenshtein
+cryptography
+motor

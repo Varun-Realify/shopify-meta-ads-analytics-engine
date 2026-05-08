@@ -1,88 +1,92 @@
 from fastapi import APIRouter, HTTPException, Query
+from typing import Optional
+
 from services.plaid_service import plaid_service
+from models.plaid_models import (
+    LinkTokenRequest,
+    LinkTokenResponse,
+    ExchangeTokenRequest,
+    ExchangeTokenResponse,
+    UserConnectionsResponse,
+    PlaidConnectionInfo,
+    PlaidStatusResponse,
+)
 
 router = APIRouter(prefix="/plaid", tags=["Plaid"])
 
-# simple in-memory store (demo only)
-_access_token_storage = {}
 
-
-# --------------------------------------------------
-# 🔹 INTERNAL: CREATE OR REUSE ACCESS TOKEN
-# --------------------------------------------------
-async def get_or_create_access_token(user_id: str):
-    access_token = _access_token_storage.get(user_id)
-
-    if not access_token:
-        print("🆕 Creating Plaid sandbox access token...")
-
-        # Step 1: create public_token (sandbox)
-        sandbox = await plaid_service._post("/sandbox/public_token/create", {
-            "client_id": plaid_service.client_id,
-            "secret": plaid_service.secret,
-            "institution_id": "ins_109508",  # Chase sandbox
-            "initial_products": ["transactions"]
-        })
-
-        public_token = sandbox["public_token"]
-
-        # Step 2: exchange → access_token
-        exchange = await plaid_service._post("/item/public_token/exchange", {
-            "client_id": plaid_service.client_id,
-            "secret": plaid_service.secret,
-            "public_token": public_token
-        })
-
-        access_token = exchange["access_token"]
-        _access_token_storage[user_id] = access_token
-
-    else:
-        print("⚡ Using cached Plaid token")
-
-    return access_token
-
-
-# --------------------------------------------------
-# 🔹 TEST CONNECTION
-# --------------------------------------------------
-@router.get("/test")
-async def test_connection():
+@router.post("/link_token", response_model=LinkTokenResponse)
+async def create_link_token(body: LinkTokenRequest):
     try:
-        return await plaid_service.test_connection()
+        result = await plaid_service.create_link_token(body.user_id)
+        return LinkTokenResponse(**result)
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# --------------------------------------------------
-# 🔹 GET ACCOUNTS
-# --------------------------------------------------
+@router.post("/exchange_token", response_model=ExchangeTokenResponse)
+async def exchange_token(body: ExchangeTokenRequest):
+    try:
+        result = await plaid_service.exchange_and_store(
+            user_id=body.user_id,
+            public_token=body.public_token,
+        )
+
+        return ExchangeTokenResponse(**result)
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/accounts")
-async def get_accounts(user_id: str = Query("default")):
-    try:
-        access_token = await get_or_create_access_token(user_id)
-        return await plaid_service.get_accounts(access_token)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# --------------------------------------------------
-# 🔹 GET TRANSACTIONS
-# --------------------------------------------------
-@router.get("/transactions")
-async def get_transactions(
-    start_date: str = Query(...),
-    end_date: str = Query(...),
-    user_id: str = Query("default")
+async def get_accounts(
+    user_id: str = Query(...),
+    item_id: Optional[str] = Query(None),
 ):
     try:
-        access_token = await get_or_create_access_token(user_id)
+        return await plaid_service.get_accounts_for_user(
+            user_id=user_id,
+            item_id=item_id,
+        )
 
-        result = await plaid_service.get_transactions(access_token, start_date, end_date)
+    except Exception as e:
+        detail = str(e)
+        status_code = 404 if "No Plaid connection" in detail else 500
+        raise HTTPException(status_code=status_code, detail=detail)
+
+
+@router.get("/transactions")
+async def get_transactions(
+    user_id: str = Query(...),
+    start_date: str = Query(...),
+    end_date: str = Query(...),
+    item_id: Optional[str] = Query(None),
+    count: int = Query(500, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+):
+    try:
+        result = await plaid_service.get_transactions_for_user(
+            user_id=user_id,
+            start_date=start_date,
+            end_date=end_date,
+            item_id=item_id,
+            count=count,
+            offset=offset,
+        )
+
         transactions = result.get("transactions", [])
 
-        # transform for frontend
         transformed = []
+
         for tx in transactions:
+            category = (
+                tx.get("personal_finance_category", {}).get("primary")
+                or (tx.get("category") or [None])[0]
+            )
+
             transformed.append({
                 "transaction_id": tx.get("transaction_id"),
                 "account_id": tx.get("account_id"),
@@ -90,38 +94,91 @@ async def get_transactions(
                 "date": tx.get("date"),
                 "name": tx.get("name"),
                 "merchant_name": tx.get("merchant_name"),
-                "category": (
-                    tx.get("category", [{}])[0].get("primary")
-                    if tx.get("category") else None
-                ),
+                "category": category,
                 "pending": tx.get("pending"),
-                "payment_channel": tx.get("payment_channel")
+                "payment_channel": tx.get("payment_channel"),
             })
 
-        # expenses = positive values
-        total_expenses = sum(
-            tx["amount"] for tx in transactions if tx.get("amount", 0) > 0
+        total_expenses = round(
+            sum(
+                tx["amount"]
+                for tx in transactions
+                if tx.get("amount", 0) > 0
+            ),
+            2,
         )
 
         return {
+            "user_id": user_id,
+            "item_id": result.get("item_id"),
+            "institution_name": result.get("institution_name"),
             "transactions": transformed,
             "total_transactions": len(transformed),
-            "total_expenses": round(total_expenses, 2),
+            "total_expenses": total_expenses,
             "accounts": result.get("accounts", []),
-            "item": result.get("item", {})
+            "item": result.get("item", {}),
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Plaid error: {str(e)}")
+        detail = str(e)
+        status_code = 404 if "No Plaid connection" in detail else 500
+        raise HTTPException(status_code=status_code, detail=detail)
 
 
-# --------------------------------------------------
-# 🔹 STATUS
-# --------------------------------------------------
-@router.get("/status")
-async def get_status():
-    return {
-        "configured": bool(plaid_service.client_id and plaid_service.secret),
-        "environment": plaid_service.env,
-        "linked": bool(_access_token_storage.get("default"))
-    }
+@router.get("/connections", response_model=UserConnectionsResponse)
+async def get_connections(user_id: str = Query(...)):
+    try:
+        connections = await plaid_service.get_connections_for_user(user_id)
+
+        return UserConnectionsResponse(
+            user_id=user_id,
+            connections=[
+                PlaidConnectionInfo(**connection)
+                for connection in connections
+            ],
+            total=len(connections),
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/status", response_model=PlaidStatusResponse)
+async def get_status(user_id: str = Query(...)):
+    try:
+        connections = await plaid_service.get_connections_for_user(user_id)
+
+        return PlaidStatusResponse(
+            configured=bool(plaid_service.client_id and plaid_service.secret),
+            environment=plaid_service.env,
+            user_id=user_id,
+            connected=len(connections) > 0,
+            connection_count=len(connections),
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/sandbox/connect")
+async def sandbox_connect(
+    user_id: str = Query(...),
+    institution_id: str = Query("ins_109508"),
+):
+    try:
+        return await plaid_service.create_sandbox_token_for_user(
+            user_id=user_id,
+            institution_id=institution_id,
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/test")
+async def test_connection():
+    try:
+        return await plaid_service.test_connection()
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

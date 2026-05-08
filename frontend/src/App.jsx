@@ -1,6 +1,7 @@
 // Only WooCommerce-related imports are active; others commented out until needed
 import { Activity, AlertCircle, Calendar, CreditCard, DollarSign, Lock, ShoppingCart, Link } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { usePlaidLink } from 'react-plaid-link';
 import './App.css';
 // import GoogleMerchantIntel from './components/GoogleMerchantIntel';
 
@@ -21,7 +22,16 @@ function App() {
   const [wooData, setWooData] = useState({ products: [], orders: [], loading: false, error: null });
 
   // Plaid: stores fetched transactions and their fetch state
-  const [plaidData, setPlaidData] = useState({ transactions: [], totalExpenses: 0, loading: false, error: null, linked: false });
+  const [plaidData, setPlaidData] = useState({
+    transactions: [],
+    totalExpenses: 0,
+    loading: false,
+    error: null,
+    linked: false
+  });
+  const [plaidUserId, setPlaidUserId] = useState("");
+  const [plaidLinkToken, setPlaidLinkToken] = useState(null);
+  const [plaidConnecting, setPlaidConnecting] = useState(false);
 
   const [qbData, setQbData] = useState({
     summary: null,
@@ -172,6 +182,15 @@ function App() {
 
   // Fetches Plaid transactions for the selected date range
   const fetchPlaid = async () => {
+    if (!plaidUserId.trim()) {
+      setPlaidData(prev => ({
+        ...prev,
+        error: "Please enter a User ID first.",
+        linked: false
+      }));
+      return;
+    }
+
     setPlaidData(prev => ({ ...prev, loading: true, error: null }));
 
     const controller = new AbortController();
@@ -179,15 +198,23 @@ function App() {
 
     try {
       const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
       const response = await fetch(
-        `${baseUrl}/api/v1/plaid/transactions?start_date=${startDate}&end_date=${endDate}&user_id=default`,
+        `${baseUrl}/api/v1/plaid/transactions?start_date=${startDate}&end_date=${endDate}&user_id=${encodeURIComponent(plaidUserId)}`,
         { signal: controller.signal }
       );
+
       clearTimeout(timeoutId);
 
-      if (!response.ok) throw new Error(`Plaid API error: ${response.status}`);
+      if (!response.ok) {
+        if (response.status === 404) {
+          throw new Error("PLAID_NOT_CONNECTED");
+        }
+        throw new Error(`Plaid API error: ${response.status}`);
+      }
 
       const result = await response.json();
+
       setPlaidData({
         transactions: result.transactions || [],
         totalExpenses: result.total_expenses || 0,
@@ -197,12 +224,112 @@ function App() {
       });
     } catch (err) {
       clearTimeout(timeoutId);
+
       const msg = err.name === 'AbortError'
         ? 'Request timed out (15s). Check Plaid connection.'
         : err.message;
-      setPlaidData(prev => ({ ...prev, loading: false, error: msg, linked: false }));
+
+      setPlaidData(prev => ({
+        ...prev,
+        loading: false,
+        error: msg,
+        linked: false
+      }));
     }
   };
+
+  const handlePlaidConnect = async () => {
+    if (!plaidUserId.trim()) {
+      setPlaidData(prev => ({
+        ...prev,
+        error: "Please enter a User ID first."
+      }));
+      return;
+    }
+
+    setPlaidConnecting(true);
+    setPlaidData(prev => ({ ...prev, error: null }));
+
+    try {
+      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
+      const response = await fetch(`${baseUrl}/api/v1/plaid/link_token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: plaidUserId })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to create Plaid Link token: ${response.status} - ${errorText}`);
+      }
+
+      const data = await response.json();
+
+      if (!data.link_token) {
+        throw new Error("No link_token returned from backend.");
+      }
+
+      setPlaidLinkToken(data.link_token);
+    } catch (err) {
+      setPlaidData(prev => ({
+        ...prev,
+        error: err.message,
+        linked: false
+      }));
+      setPlaidConnecting(false);
+    }
+  };
+
+  const onPlaidSuccess = useCallback(async (publicToken) => {
+    try {
+      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
+      const response = await fetch(`${baseUrl}/api/v1/plaid/exchange_token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: plaidUserId,
+          public_token: publicToken
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Plaid token exchange failed: ${response.status} - ${errorText}`);
+      }
+
+      await response.json();
+
+      setPlaidData(prev => ({
+        ...prev,
+        linked: true,
+        error: null
+      }));
+
+      await fetchPlaid();
+    } catch (err) {
+      setPlaidData(prev => ({
+        ...prev,
+        error: err.message,
+        linked: false
+      }));
+    } finally {
+      setPlaidConnecting(false);
+      setPlaidLinkToken(null);
+    }
+  }, [plaidUserId, startDate, endDate]);
+
+  const { open, ready } = usePlaidLink({
+    token: plaidLinkToken,
+    onSuccess: onPlaidSuccess,
+  });
+
+  useEffect(() => {
+    if (plaidLinkToken && ready) {
+      open();
+    }
+  }, [plaidLinkToken, ready, open]);
 
   const handleQBLogin = async () => {
     try {
@@ -427,7 +554,7 @@ function App() {
           {/* Plaid tab — fetches bank transactions */}
           <div
             className={`nav-item ${activeTab === 'plaid' ? 'active' : ''}`}
-            onClick={() => { setActiveTab('plaid'); fetchPlaid(); }}
+            onClick={() => { setActiveTab('plaid'); }}
           >
             <CreditCard size={20} /> <span>Expenses</span>
           </div>
@@ -689,22 +816,120 @@ function App() {
 
             {/* Error state shown if the API call fails */}
             {plaidData.error && !plaidData.loading && (
-              <div className="woo-center-state glass-panel woo-error-state">
+              <div
+                className="woo-center-state glass-panel woo-error-state"
+                style={{
+                  gap: '1.25rem',
+                  padding: '2.5rem'
+                }}
+              >
                 <AlertCircle size={44} color="var(--danger)" />
-                <p className="woo-state-title">Connection Failed</p>
-                <p className="woo-state-label">{plaidData.error}</p>
-                <button className="woo-load-btn" onClick={fetchPlaid}>Try Again</button>
+
+                <div style={{ textAlign: 'center' }}>
+                  <p className="woo-state-title">
+                    {plaidData.error === "PLAID_NOT_CONNECTED"
+                      ? "Bank Not Connected"
+                      : "Action Required"}
+                  </p>
+
+                  <p className="woo-state-label">
+                    {plaidData.error === "Please enter a User ID first."
+                      ? "Enter a user ID before connecting or loading transactions."
+                      : plaidData.error === "PLAID_NOT_CONNECTED"
+                      ? "No Plaid connection found for this user. Connect a bank account first."
+                      : plaidData.error}
+                  </p>
+                </div>
+
+                <div
+                  style={{
+                    width: '100%',
+                    maxWidth: 520,
+                    display: 'flex',
+                    gap: '0.75rem',
+                    alignItems: 'center'
+                  }}
+                >
+                  <input
+                    type="text"
+                    value={plaidUserId}
+                    onChange={(e) => setPlaidUserId(e.target.value)}
+                    placeholder="Enter user id"
+                    style={{
+                      flex: 1,
+                      padding: '0.95rem 1rem',
+                      borderRadius: 14
+                    }}
+                  />
+
+                  <button
+                    className="woo-load-btn"
+                    onClick={handlePlaidConnect}
+                    disabled={plaidConnecting}
+                  >
+                    {plaidConnecting ? "Connecting..." : "Connect"}
+                  </button>
+                </div>
+
+                <button className="refresh-btn" onClick={fetchPlaid}>
+                  Load Transactions
+                </button>
               </div>
             )}
 
             {/* Empty / initial state — shown before the user fetches for the first time */}
             {!plaidData.loading && !plaidData.error && plaidData.transactions.length === 0 && !plaidData.linked && (
-              <div className="woo-center-state glass-panel">
-                <div className="woo-store-icon"><CreditCard size={36} /></div>
-                <p className="woo-state-title">Bank Transactions</p>
-                <p className="woo-state-label">Click below to pull transactions from your linked bank account.</p>
-                <button className="woo-load-btn" onClick={fetchPlaid}>
-                  <CreditCard size={16} style={{ marginRight: 8 }} />
+              <div
+                className="woo-center-state glass-panel"
+                style={{
+                  gap: '1.35rem',
+                  padding: '2.75rem'
+                }}
+              >
+                <div className="woo-store-icon">
+                  <CreditCard size={36} />
+                </div>
+
+                <div style={{ textAlign: 'center' }}>
+                  <p className="woo-state-title">Connect Bank Account</p>
+
+                  <p className="woo-state-label">
+                    Enter a user ID, connect Plaid, then load that user's transactions.
+                  </p>
+                </div>
+
+                <div
+                  style={{
+                    width: '100%',
+                    maxWidth: 560,
+                    display: 'flex',
+                    gap: '0.85rem',
+                    alignItems: 'center'
+                  }}
+                >
+                  <input
+                    type="text"
+                    value={plaidUserId}
+                    onChange={(e) => setPlaidUserId(e.target.value)}
+                    placeholder="Enter user id"
+                    style={{
+                      flex: 1,
+                      padding: '1rem 1.1rem',
+                      borderRadius: 14
+                    }}
+                  />
+
+                  <button
+                    className="woo-load-btn"
+                    onClick={handlePlaidConnect}
+                    disabled={plaidConnecting}
+                  >
+                    <CreditCard size={16} style={{ marginRight: 8 }} />
+                    {plaidConnecting ? "Connecting..." : "Connect"}
+                  </button>
+                </div>
+
+                <button className="refresh-btn" onClick={fetchPlaid}>
                   Load Transactions
                 </button>
               </div>
@@ -714,6 +939,67 @@ function App() {
             {!plaidData.loading && !plaidData.error && plaidData.transactions.length > 0 && (() => {
               return (
                 <>
+                  <div
+                    className="table-container glass-panel"
+                    style={{
+                      marginBottom: '1.5rem',
+                      padding: '1.25rem'
+                    }}
+                  >
+                    <div
+                      className="table-header-flex"
+                      style={{
+                        gap: '1rem'
+                      }}
+                    >
+                      <h3 className="chart-title">
+                        <CreditCard
+                          size={16}
+                          style={{ display: 'inline', marginRight: 6 }}
+                        />
+                        Plaid User
+                      </h3>
+
+                      <button className="refresh-btn" onClick={fetchPlaid}>
+                        Refresh
+                      </button>
+                    </div>
+
+                    <div
+                      style={{
+                        marginTop: '1.25rem',
+                        display: 'flex',
+                        gap: '0.85rem',
+                        alignItems: 'center',
+                        maxWidth: 560
+                      }}
+                    >
+                      <input
+                        type="text"
+                        value={plaidUserId}
+                        onChange={(e) => setPlaidUserId(e.target.value)}
+                        placeholder="Enter user id"
+                        style={{
+                          flex: 1,
+                          padding: '1rem 1.1rem',
+                          borderRadius: 14
+                        }}
+                      />
+
+                      <button className="woo-load-btn" onClick={fetchPlaid}>
+                        Load User
+                      </button>
+
+                      <button
+                        className="refresh-btn"
+                        onClick={handlePlaidConnect}
+                        disabled={plaidConnecting}
+                      >
+                        Connect New Bank
+                      </button>
+                    </div>
+                  </div>
+
                   {/* KPI summary cards for expenses */}
                   <div className="woo-kpi-grid">
                     <div className="woo-kpi-card glass-panel">
