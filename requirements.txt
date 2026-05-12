@@ -15,3 +15,5 @@ rapidfuzz
 python-Levenshtein
 cryptography
 motor
+uvicorn
+fastapi
