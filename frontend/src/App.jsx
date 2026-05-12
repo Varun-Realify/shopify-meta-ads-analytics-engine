@@ -78,7 +78,8 @@ function App() {
 
     // Generate OAuth URL
     const client_id = 'ca_UR4O1ElJxeIDF5JX2vNU8U9BkM7ZnIai'; // From backend
-    const redirect_uri = 'http://localhost:8000/api/v1/stripe/callback';
+    const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+    const redirect_uri = `${baseUrl}/api/v1/stripe/callback`;
     const authUrl = `https://connect.stripe.com/oauth/authorize?response_type=code&client_id=${client_id}&scope=read_write&redirect_uri=${redirect_uri}&state=${dynamicUserId}`;
     window.location.href = authUrl;
   };
