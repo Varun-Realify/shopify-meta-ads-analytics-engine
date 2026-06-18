@@ -20,6 +20,6 @@ def get_dashboard_chart(
         # Generate the PNG image output
         image_bytes = chart_service.generate_dashboard(analytics_data)
         
-        return Response(content=image_bytes, media_type="image/png")
+        return Response(content=image_bytes, media_type="image/png")    
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

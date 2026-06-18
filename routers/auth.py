@@ -6,6 +6,7 @@ import uuid
 import time
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from database.db import SessionLocal
 from models.shop_model import Shop
@@ -73,6 +74,58 @@ async def auth_shopify_callback(shop: str, code: str):
     
     frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
     return RedirectResponse(url=f"{frontend_url}/sales?shop={shop}&status=connected&platform=shopify")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# SHOPIFY MANUAL TOKEN (temporary until Partner App is approved)
+# ═══════════════════════════════════════════════════════════════════════
+
+class ManualTokenRequest(BaseModel):
+    shop: str
+    access_token: str
+
+@router.post("/auth/shopify/manual")
+async def shopify_manual_connect(body: ManualTokenRequest):
+    shop = body.shop.strip().replace("https://", "").replace("http://", "").strip("/")
+    token = body.access_token.strip()
+
+    # Validate token against Shopify
+    shop_info_url = f"https://{shop}/admin/api/2024-01/shop.json"
+    resp = requests.get(shop_info_url, headers={"X-Shopify-Access-Token": token})
+
+    if resp.status_code != 200:
+        raise HTTPException(status_code=401, detail="Invalid token or store URL. Check the Admin API access token.")
+
+    shop_data = resp.json().get("shop", {})
+    shop_name = shop_data.get("name", shop.split('.')[0])
+    email = shop_data.get("email")
+    currency = shop_data.get("currency")
+
+    db = SessionLocal()
+    try:
+        existing = db.query(Shop).filter(Shop.shop_domain == shop).first()
+        if existing:
+            existing.access_token = token
+            existing.shop_name = shop_name
+            existing.platform = "shopify"
+        else:
+            new_shop = Shop(
+                shop_domain=shop,
+                access_token=token,
+                platform="shopify",
+                shop_name=shop_name
+            )
+            db.add(new_shop)
+        db.commit()
+        logger.info(f"Manual token connected: {shop}")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"DB error during manual connect: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    finally:
+        db.close()
+
+    return {"shop": shop, "shop_name": shop_name, "status": "connected"}
 
 
 # ═══════════════════════════════════════════════════════════════════════
