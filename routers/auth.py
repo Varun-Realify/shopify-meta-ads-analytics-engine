@@ -1,4 +1,7 @@
 import os
+import re
+import json
+import base64
 import requests
 import logging
 import urllib.parse
@@ -23,37 +26,85 @@ logger = logging.getLogger(__name__)
 SHOPIFY_API_KEY = os.getenv("SHOPIFY_API_KEY")
 SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET")
 SHOPIFY_REDIRECT_URI = os.getenv("SHOPIFY_REDIRECT_URI")
-SHOPIFY_SCOPES = "read_products,read_orders,read_inventory"
+SHOPIFY_SCOPES = "read_products,read_orders,read_inventory,read_customers,read_analytics"
 
-@router.get("/auth/shopify")
-async def auth_shopify(shop: str):
-    if not shop:
-        raise HTTPException(status_code=400, detail="Missing shop parameter")
-    
-    auth_url = (
-        f"https://{shop}/admin/oauth/authorize?"
-        f"client_id={SHOPIFY_API_KEY}&"
-        f"scope={SHOPIFY_SCOPES}&"
-        f"redirect_uri={SHOPIFY_REDIRECT_URI}&"
-        f"state=nonce"
+class ShopifyBeginRequest(BaseModel):
+    shop: str
+    api_key: str
+    api_secret: str
+
+
+def _encode_state(api_key: str, api_secret: str) -> str:
+    """Pack credentials into a URL-safe base64 string used as the OAuth state."""
+    payload = json.dumps({"k": api_key, "s": api_secret})
+    return base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=")
+
+
+def _decode_state(state: str):
+    """Unpack credentials from the state string returned by Shopify's callback."""
+    try:
+        # Restore stripped base64 padding
+        padded = state + "=" * (-len(state) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(padded).decode())
+        return payload.get("k"), payload.get("s")
+    except Exception:
+        return None, None
+
+
+@router.post("/auth/shopify/begin")
+async def begin_shopify_auth(body: ShopifyBeginRequest):
+    """
+    Encodes the user's api_key + api_secret directly into the OAuth state
+    parameter so no server-side storage is needed.  Server restarts and
+    multiple concurrent users are handled transparently.
+    """
+    shop = re.sub(r"^https?://", "", body.shop.strip()).split("/")[0]
+    if "." not in shop:
+        shop = f"{shop}.myshopify.com"
+    elif shop.endswith(".myshopify"):
+        shop = f"{shop}.com"
+
+    api_key = body.api_key.strip()
+    api_secret = body.api_secret.strip()
+
+    if not api_key or not api_secret:
+        raise HTTPException(status_code=400, detail="api_key and api_secret are required")
+
+    state = _encode_state(api_key, api_secret)
+
+    oauth_url = (
+        f"https://{shop}/admin/oauth/authorize"
+        f"?client_id={api_key}"
+        f"&scope={SHOPIFY_SCOPES}"
+        f"&redirect_uri={SHOPIFY_REDIRECT_URI}"
+        f"&state={state}"
     )
-    return RedirectResponse(url=auth_url)
+
+    logger.info(f"OAuth begin for shop={shop}")
+    return {"oauth_url": oauth_url}
+
 
 @router.get("/auth/shopify/callback")
-async def auth_shopify_callback(shop: str, code: str):
+async def auth_shopify_callback(shop: str, code: str, state: str = ""):
+    # Decode credentials from state; fall back to .env if state is missing/invalid
+    api_key, api_secret = _decode_state(state) if state else (None, None)
+    if not api_key:
+        api_key = SHOPIFY_API_KEY
+    if not api_secret:
+        api_secret = SHOPIFY_API_SECRET
+
+    if not api_key or not api_secret:
+        raise HTTPException(status_code=400, detail="No Shopify credentials found — please reconnect")
+
     token_url = f"https://{shop}/admin/oauth/access_token"
-    payload = {
-        "client_id": SHOPIFY_API_KEY,
-        "client_secret": SHOPIFY_API_SECRET,
-        "code": code
-    }
-    
+    payload = {"client_id": api_key, "client_secret": api_secret, "code": code}
+
     response = requests.post(token_url, json=payload)
     if response.status_code != 200:
-        raise HTTPException(status_code=400, detail="Failed to retrieve access token")
-    
+        raise HTTPException(status_code=400, detail="Failed to retrieve access token from Shopify")
+
     access_token = response.json().get("access_token")
-    
+
     db = SessionLocal()
     try:
         existing_shop = db.query(Shop).filter(Shop.shop_domain == shop).first()
@@ -62,17 +113,18 @@ async def auth_shopify_callback(shop: str, code: str):
             existing_shop.platform = "shopify"
         else:
             new_shop = Shop(
-                shop_domain=shop, 
-                access_token=access_token, 
+                shop_domain=shop,
+                access_token=access_token,
                 platform="shopify",
-                shop_name=shop.split('.')[0]
+                shop_name=shop.split(".")[0],
             )
             db.add(new_shop)
         db.commit()
+        logger.info(f"OAuth complete for shop={shop}")
     finally:
         db.close()
-    
-    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173").strip().rstrip("/")
     return RedirectResponse(url=f"{frontend_url}/sales?shop={shop}&status=connected&platform=shopify")
 
 
@@ -141,8 +193,8 @@ def auth_woocommerce(shop_url: str):
     if not shop_url.startswith("http"):
         shop_url = f"https://{shop_url}"
 
-    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
-    backend_url = os.getenv("BACKEND_URL", "http://localhost:8000").rstrip("/")
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173").strip().rstrip("/")
+    backend_url = os.getenv("BACKEND_URL", "http://localhost:8000").strip().rstrip("/")
 
     # Standard Auth Endpoint params
     shop_domain = shop_url.replace('https://', '').replace('http://', '').strip("/")

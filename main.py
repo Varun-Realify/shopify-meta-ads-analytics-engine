@@ -11,8 +11,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from routers.api import router
 from routers.charts import router as charts_router
 from routers.auth import router as auth_router
+from routers.csv_import import router as csv_router
 
 from database.db import Base, engine
+import models.shop_model  # ensure all models are registered before create_all
 
 # ✅ APP CREATE PEHLE
 app = FastAPI(
@@ -24,9 +26,12 @@ app = FastAPI(
 Base.metadata.create_all(bind=engine)
 
 # ✅ MIDDLEWARE
+_frontend_url = os.getenv("FRONTEND_URL", "").rstrip("/")
+_allowed_origins = [_frontend_url] if _frontend_url else ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -35,7 +40,8 @@ app.add_middleware(
 # ✅ ROUTERS (AB USE KAR)
 app.include_router(router, prefix="/api/v1")
 app.include_router(charts_router, prefix="/api/v1/charts")
-app.include_router(auth_router, prefix="/api/v1")   # 👈 IMPORTANT
+app.include_router(auth_router, prefix="/api/v1")
+app.include_router(csv_router, prefix="/api/v1")
 
 # ROOT
 @app.get("/")

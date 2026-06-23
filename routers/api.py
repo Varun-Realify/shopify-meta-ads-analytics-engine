@@ -157,24 +157,41 @@ def get_shop_profile(platform: str, shop: str):
         db.close()
 
 
+def _has_live_token(shop: str) -> bool:
+    from database.db import SessionLocal
+    from models.shop_model import Shop as ShopModel
+    db = SessionLocal()
+    try:
+        rec = db.query(ShopModel).filter(ShopModel.shop_domain == shop).first()
+        return bool(rec and rec.access_token and len(rec.access_token.strip()) > 10)
+    finally:
+        db.close()
+
+
 @router.get("/{platform}/sales-intelligence", tags=["Platform"])
 def get_sales_intelligence(platform: str, shop: str):
+    from routers.csv_import import get_csv_sales_intelligence
+    if not _has_live_token(shop):
+        return get_csv_sales_intelligence(shop)
     try:
         service = get_platform_service(shop)
         summary = service.get_intelligence_summary(shop)
         return summary
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        return get_csv_sales_intelligence(shop)
 
 
 @router.get("/{platform}/top-products", tags=["Platform"])
 def get_top_products(platform: str, shop: str, limit: int = 5):
+    from routers.csv_import import get_csv_top_products
+    if not _has_live_token(shop):
+        return get_csv_top_products(shop, limit)
     try:
         service = get_platform_service(shop)
         products = service.get_top_performing_products(shop, limit)
         return products
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        return get_csv_top_products(shop, limit)
 
 
 # ═══════════════════════════════════════════════════════════════════════
